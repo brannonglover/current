@@ -1,0 +1,403 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { ProfileNavRow } from '@/components/ProfileNavRow';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePreferences } from '@/contexts/PreferencesContext';
+import { ThemePreference, useThemeContext } from '@/contexts/ThemeContext';
+import { useTheme } from '@/hooks/useTheme';
+import { CURIOSITY_ORDER } from '@/constants/curiosities';
+import { formatInterestLabel } from '@/utils/interestKeywords';
+
+/** Bar fills at this many likes per signal so growth is visible over time. */
+const SCORE_BAR_CAP = 10;
+
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: keyof typeof Ionicons.glyphMap }[] =
+  [
+    { value: 'light', label: 'Light', icon: 'sunny-outline' },
+    { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+    { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
+  ];
+
+export default function ProfileScreen() {
+  const { user, logout } = useAuth();
+  const { preferences, topTopics, topSources, topKeywords, enabledSourceCount, totalSourceCount } =
+    usePreferences();
+  const { preference, setPreference } = useThemeContext();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  const likedCount = preferences?.likedArticleIds.length ?? 0;
+
+  const topicScoreRows = CURIOSITY_ORDER.map((topic) => ({
+    topic,
+    score: preferences?.topicScores[topic] ?? 0,
+  }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const sourceScoreRows = topSources.map((source) => ({
+    label: source,
+    score: preferences?.sourceScores[source] ?? 0,
+  }));
+
+  const keywordScoreRows = topKeywords.map((keyword) => ({
+    label: formatInterestLabel(keyword),
+    score: preferences?.keywordScores[keyword] ?? 0,
+  }));
+
+  return (
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{
+        paddingTop: insets.top + 16,
+        paddingBottom: insets.bottom + 32,
+        paddingHorizontal: 24,
+      }}>
+      <Text style={[styles.title, { color: colors.text }]}>Profile</Text>
+
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={[styles.avatar, { backgroundColor: colors.accentMuted }]}>
+          <Text style={[styles.avatarText, { color: colors.accent }]}>
+            {user?.name?.charAt(0).toUpperCase() ?? '?'}
+          </Text>
+        </View>
+        <Text style={[styles.name, { color: colors.text }]}>{user?.name}</Text>
+        <Text style={[styles.email, { color: colors.textSecondary }]}>{user?.email}</Text>
+      </View>
+
+      <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Reading taste</Text>
+      <View style={[styles.statsRow, { borderColor: colors.border }]}>
+        <View style={styles.stat}>
+          <Text style={[styles.statValue, { color: colors.text }]}>{likedCount}</Text>
+          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Liked</Text>
+        </View>
+        <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        <View style={styles.stat}>
+          <Text style={[styles.statValue, { color: colors.text }]}>
+            {topTopics.length || '—'}
+          </Text>
+          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Top topics</Text>
+        </View>
+      </View>
+
+      {topTopics.length > 0 && (
+        <View style={styles.topics}>
+          {topTopics.map((topic) => (
+            <View key={topic} style={[styles.topicPill, { backgroundColor: colors.accentMuted }]}>
+              <Text style={[styles.topicText, { color: colors.accent }]}>{topic}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {(topKeywords.length > 0 || topSources.length > 0) && (
+        <>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>
+            Narrower interests
+          </Text>
+          <Text style={[styles.sectionHelper, { color: colors.textSecondary }]}>
+            Keywords from liked headlines and outlets you return to most.
+          </Text>
+          {topKeywords.length > 0 && (
+            <View style={styles.topics}>
+              {topKeywords.map((keyword) => (
+                <View
+                  key={keyword}
+                  style={[styles.topicPill, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+                  <Text style={[styles.topicText, { color: colors.text }]}>
+                    {formatInterestLabel(keyword)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {topSources.length > 0 && (
+            <View style={[styles.topics, { marginTop: topKeywords.length > 0 ? 8 : 0 }]}>
+              {topSources.map((source) => (
+                <View key={source} style={[styles.topicPill, { backgroundColor: colors.accentMuted }]}>
+                  <Text style={[styles.topicText, { color: colors.accent }]}>{source}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+
+      <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>
+        All topic scores
+      </Text>
+      <Text style={[styles.sectionHelper, { color: colors.textSecondary }]}>
+        Each like adds 1 point to topics, source, and title keywords. Bars fill at {SCORE_BAR_CAP}{' '}
+        points.
+      </Text>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        {topicScoreRows.length === 0 ? (
+          <Text style={[styles.emptyScores, { color: colors.textSecondary }]}>
+            Like articles to build your topic interests.
+          </Text>
+        ) : (
+          topicScoreRows.map(({ topic, score }) => (
+            <View key={topic} style={styles.scoreRow}>
+              <Text style={[styles.topicLabel, { color: colors.text }]}>{topic}</Text>
+              <View style={[styles.barTrack, { backgroundColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.barFill,
+                    {
+                      backgroundColor: colors.accent,
+                      width: `${Math.min(100, (score / SCORE_BAR_CAP) * 100)}%`,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.scoreValue, { color: colors.textSecondary }]}>{score}</Text>
+            </View>
+          ))
+        )}
+      </View>
+
+      {(sourceScoreRows.length > 0 || keywordScoreRows.length > 0) && (
+        <>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>
+            Source & keyword scores
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {[...sourceScoreRows, ...keywordScoreRows].map(({ label, score }) => (
+              <View key={label} style={styles.scoreRow}>
+                <Text style={[styles.topicLabel, { color: colors.text, width: 110 }]} numberOfLines={1}>
+                  {label}
+                </Text>
+                <View style={[styles.barTrack, { backgroundColor: colors.border }]}>
+                  <View
+                    style={[
+                      styles.barFill,
+                      {
+                        backgroundColor: colors.accent,
+                        width: `${Math.min(100, (score / SCORE_BAR_CAP) * 100)}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.scoreValue, { color: colors.textSecondary }]}>{score}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+
+      <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>
+        Settings
+      </Text>
+      <ProfileNavRow
+        href="/sources"
+        icon="newspaper-outline"
+        label="Sources"
+        detail={`${totalSourceCount} outlets · ${enabledSourceCount} enabled`}
+      />
+
+      <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>
+        Appearance
+      </Text>
+      <View style={[styles.themePicker, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        {THEME_OPTIONS.map((option) => {
+          const selected = preference === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => setPreference(option.value)}
+              style={({ pressed }) => [
+                styles.themeOption,
+                selected && { backgroundColor: colors.accentMuted },
+                pressed && !selected && { opacity: 0.7 },
+              ]}>
+              <Ionicons
+                name={option.icon}
+                size={18}
+                color={selected ? colors.accent : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.themeOptionLabel,
+                  { color: selected ? colors.accent : colors.textSecondary },
+                ]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Pressable
+        onPress={logout}
+        style={({ pressed }) => [
+          styles.logoutButton,
+          { borderColor: colors.border },
+          pressed && { opacity: 0.7 },
+        ]}>
+        <Ionicons name="log-out-outline" size={20} color={colors.textSecondary} />
+        <Text style={[styles.logoutText, { color: colors.textSecondary }]}>Sign out</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  title: {
+    fontFamily: 'LoraBold',
+    fontSize: 28,
+    marginBottom: 24,
+  },
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 20,
+    marginBottom: 8,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  avatarText: {
+    fontFamily: 'LoraBold',
+    fontSize: 24,
+  },
+  name: {
+    fontFamily: 'InterSemiBold',
+    fontSize: 18,
+  },
+  email: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  sectionTitle: {
+    fontFamily: 'InterMedium',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  sectionHelper: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: -4,
+    marginBottom: 12,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 20,
+  },
+  stat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontFamily: 'LoraBold',
+    fontSize: 28,
+  },
+  statLabel: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  divider: {
+    width: 1,
+    marginVertical: 4,
+  },
+  topics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  topicPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  topicText: {
+    fontFamily: 'InterMedium',
+    fontSize: 13,
+    textTransform: 'capitalize',
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  topicLabel: {
+    fontFamily: 'InterMedium',
+    fontSize: 13,
+    width: 90,
+    textTransform: 'capitalize',
+  },
+  barTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 3,
+    minWidth: 0,
+  },
+  scoreValue: {
+    fontFamily: 'InterMedium',
+    fontSize: 13,
+    width: 24,
+    textAlign: 'right',
+  },
+  emptyScores: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+  },
+  themePicker: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  themeOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  themeOptionLabel: {
+    fontFamily: 'InterMedium',
+    fontSize: 14,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 32,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  logoutText: {
+    fontFamily: 'InterMedium',
+    fontSize: 15,
+  },
+});

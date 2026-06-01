@@ -1,0 +1,108 @@
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+
+import { ArticleReader } from '@/components/ArticleReader';
+import { useTheme } from '@/hooks/useTheme';
+import { getRememberedArticle } from '@/services/articleSession';
+import { fetchArticleById } from '@/services/articles';
+import { Article } from '@/types';
+
+function resolveArticleId(id: string | string[] | undefined): string | undefined {
+  if (typeof id === 'string') return id;
+  if (Array.isArray(id)) return id[0];
+  return undefined;
+}
+
+export default function ArticleScreen() {
+  const { id } = useLocalSearchParams<{ id: string | string[] }>();
+  const articleId = resolveArticleId(id);
+  const { colors } = useTheme();
+  const [article, setArticle] = useState<Article | undefined>(() =>
+    articleId ? getRememberedArticle(articleId) : undefined,
+  );
+  const [isLoading, setIsLoading] = useState(() => !article);
+
+  useEffect(() => {
+    if (!articleId) {
+      setIsLoading(false);
+      return;
+    }
+
+    const remembered = getRememberedArticle(articleId);
+    if (remembered) {
+      setArticle(remembered);
+    }
+
+    setIsLoading(!remembered);
+    fetchArticleById(articleId)
+      .then((fetched) => {
+        if (fetched) {
+          setArticle(fetched);
+          return;
+        }
+        if (!remembered) setArticle(undefined);
+      })
+      .finally(() => setIsLoading(false));
+  }, [articleId]);
+
+  if (isLoading) {
+    return (
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.text} />
+      </View>
+    );
+  }
+
+  if (!article) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Not found' }} />
+        <View style={[styles.notFound, { backgroundColor: colors.background }]}>
+          <Text style={[styles.notFoundText, { color: colors.textSecondary }]}>
+            This article could not be found.
+          </Text>
+        </View>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Stack.Screen
+        options={{
+          title: article.source,
+          headerStyle: { backgroundColor: colors.background },
+          headerShadowVisible: false,
+          headerTintColor: colors.text,
+          headerBackTitle: 'Back',
+          contentStyle: { backgroundColor: colors.background },
+          gestureEnabled: true,
+          fullScreenGestureEnabled: Platform.OS === 'ios',
+          animationMatchesGesture: true,
+          animation: 'slide_from_right',
+        }}
+      />
+      <ArticleReader article={article} />
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notFound: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  notFoundText: {
+    fontFamily: 'Inter',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+});
