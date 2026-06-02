@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd backend && npm ci && npm run build",
+  "installCommand": "cd backend && npm ci",
+  "crons": [
+    {
+      "path": "/api/cron/ingest",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}

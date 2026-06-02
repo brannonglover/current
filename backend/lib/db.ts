@@ -7,7 +7,11 @@ import { inferSportTags, type SportTag } from '../../catalog/sports';
 import { Article, Topic } from './types';
 
 const dataDir = path.join(process.cwd(), 'data');
-const dbPath = process.env.DATABASE_PATH ?? path.join(dataDir, 'current.db');
+// Vercel serverless only allows writes under /tmp; data/ is read-only there.
+const defaultDbPath = process.env.VERCEL
+  ? path.join('/tmp', 'current.db')
+  : path.join(dataDir, 'current.db');
+const dbPath = process.env.DATABASE_PATH ?? defaultDbPath;
 
 let db: Database.Database | null = null;
 

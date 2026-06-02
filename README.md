@@ -89,13 +89,54 @@ backend/             Next.js API + RSS ingestion
   lib/feeds.ts       Source configuration
   lib/ingest.ts      RSS fetch + normalize
   data/current.db    SQLite (local, gitignored)
+catalog/             Shared sources, sports tags, HTML decode (app + API)
 components/          UI
 services/            API client, recommendations
 ```
 
+## Deploy backend (Vercel)
+
+The Expo app lives at the repo root; the API is **`backend/`** only. The API imports shared modules from **`catalog/`** at the repo root, so Vercel must upload the full repository — not only `backend/`.
+
+**Root Directory:** In Vercel → Project → Settings → General, leave **Root Directory empty** (`.` / repository root). Do **not** set it to `backend`; that uploads ~35 files and the build fails resolving `../../catalog/…`.
+
+Repo-root `vercel.json` runs install/build inside `backend/` and keeps the ingest cron. `backend/next.config.ts` sets `outputFileTracingRoot` to the monorepo root so serverless bundles include `catalog/`.
+
+| Setting | Value |
+|---------|--------|
+| Root Directory | **empty** (`.` ) |
+| Framework Preset | Next.js |
+| Install Command | `cd backend && npm ci` (default from `vercel.json`) |
+| Build Command | `cd backend && npm ci && npm run build` (default from `vercel.json`) |
+
+**CLI:** run `vercel` from the **repository root** (not `cd backend`), after `vercel link` on the API project. A `.vercel` folder under `backend/` from an older link still works if project settings use an empty Root Directory.
+
+1. Log in (fixes `The specified token is not valid`):
+
+   ```bash
+   vercel login
+   ```
+
+2. Link and deploy:
+
+   ```bash
+   vercel link    # at repo root; choose the API project; Framework: Next.js
+   vercel
+   ```
+
+3. In the Vercel project → **Settings → Environment Variables** (Production and Preview), set:
+
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `CRON_SECRET` (must match what Vercel Cron sends as `Authorization: Bearer …`)
+
+4. After deploy, set `EXPO_PUBLIC_API_URL` in EAS to your production API URL (e.g. `https://your-project.vercel.app`).
+
+SQLite (`better-sqlite3`) is configured for Vercel via `serverExternalPackages` in `backend/next.config.ts`; the DB file is ephemeral under `/tmp` on serverless unless you set `DATABASE_PATH`.
+
 ## Next steps
 
-- Deploy backend to Vercel and point `EXPO_PUBLIC_API_URL` at production
+- Point `EXPO_PUBLIC_API_URL` at the Vercel API URL (see **Deploy backend** above)
 - Move auth + likes to the API for cross-device sync
 - Add more feeds in `backend/lib/feeds.ts`
 - Optional: full-text extraction or in-app browser for publisher URLs
