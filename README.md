@@ -111,6 +111,19 @@ Do **not** leave Root Directory empty — the repo root `package.json` is Expo-o
 
 Config lives in **`backend/vercel.json`** (ingest cron). **`backend/.vercelignore`** trims Expo/native paths for CLI uploads.
 
+### Fix: `Command "cd backend && npm ci" exited with 1`
+
+This almost always means a **stale dashboard override** left over from when Root Directory was empty. With Root Directory = **`backend`**, Vercel already runs install/build inside `backend/`; a custom **`cd backend && npm ci`** tries `backend/backend` or fails because `package-lock.json` is not in that cwd.
+
+1. Vercel dashboard → your API project (e.g. **current-backend**) → **Settings** → **Build and Deployment** (or **General** → scroll to Build).
+2. **Root Directory**: confirm **`backend`** (Edit → enter `backend` → Save if needed).
+3. **Install Command**: open the override → click **Reset** / clear the field so it shows the default (empty = platform default, typically `npm install` or `npm ci` in the root directory).
+4. **Build Command**: same — **Reset** to default (`npm run build`).
+5. **Deployments** → latest failed deployment → **⋯** → **Redeploy** (or push an empty commit).
+
+Do **not** set Install Command to `cd backend && npm ci` when Root Directory is `backend`. Repo config does not set install/build commands — only **`backend/vercel.json`** (crons). There is **no** repo-root `vercel.json`.
+
+
 ### Git vs CLI
 
 | Method | Where to run | Notes |
