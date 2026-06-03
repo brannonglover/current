@@ -91,6 +91,7 @@ module.exports = {
           color: "#E85D4C",
         },
       ],
+      "expo-background-task",
     ],
     experiments: {
       typedRoutes: true,

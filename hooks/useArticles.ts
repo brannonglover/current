@@ -108,7 +108,7 @@ export function useArticles(): UseArticlesResult {
 
         if (user && preferences?.trendingNotificationsEnabled) {
           const forTrending = applyFeedFilters(data, preferences, sources);
-          void processHotTrendingNotifications(user.id, forTrending, true);
+          void processHotTrendingNotifications(user.id, forTrending, true, preferences);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load articles');

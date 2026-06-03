@@ -11,8 +11,9 @@ import {
   getNotifiedArticleIds,
   markArticleNotified,
 } from '@/services/trendingNotificationState';
-import { Article } from '@/types';
+import { Article, UserPreferences } from '@/types';
 import { findHotTrendingCandidates } from '@/utils/trendingArticles';
+import { isTrendingNotificationRelevant } from '@/utils/trendingNotificationInterest';
 
 /**
  * Local notifications when the app learns of new hot trending stories.
@@ -35,13 +36,18 @@ export async function processHotTrendingNotifications(
   userId: string,
   articles: Article[],
   enabled: boolean,
+  preferences?: UserPreferences,
 ): Promise<void> {
   if (!enabled || !notificationsAvailable()) return;
   if (!(await getNotificationPermissionGranted())) return;
 
   const notified = await getNotifiedArticleIds(userId);
   const candidates = findHotTrendingCandidates(articles);
-  const next = candidates.find((c) => !notified.has(c.article.id));
+  const next = candidates.find((c) => {
+    if (notified.has(c.article.id)) return false;
+    if (preferences && !isTrendingNotificationRelevant(c.article, preferences)) return false;
+    return true;
+  });
   if (!next) return;
 
   await presentHotTrendingNotification(next.article);
