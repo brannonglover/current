@@ -7,9 +7,13 @@ import {
   scheduleLocalNotification,
   TRENDING_CHANNEL_ID,
 } from '@/services/notificationSetup';
+import { normalizeFeedPreferences } from '@/services/feedPreferences';
+import { hasPersonalizationSignals } from '@/services/interestSignals';
 import {
   getNotifiedArticleIds,
+  isWithinColdStartTrendingCooldown,
   markArticleNotified,
+  markTrendingNotificationSent,
 } from '@/services/trendingNotificationState';
 import { Article, UserPreferences } from '@/types';
 import { findHotTrendingCandidates } from '@/utils/trendingArticles';
@@ -41,6 +45,15 @@ export async function processHotTrendingNotifications(
   if (!enabled || !notificationsAvailable()) return;
   if (!(await getNotificationPermissionGranted())) return;
 
+  const prefs = preferences ? normalizeFeedPreferences(preferences) : null;
+  if (
+    prefs &&
+    !hasPersonalizationSignals(prefs) &&
+    (await isWithinColdStartTrendingCooldown(userId))
+  ) {
+    return;
+  }
+
   const notified = await getNotifiedArticleIds(userId);
   const candidates = findHotTrendingCandidates(articles);
   const next = candidates.find((c) => {
@@ -52,4 +65,7 @@ export async function processHotTrendingNotifications(
 
   await presentHotTrendingNotification(next.article);
   await markArticleNotified(userId, next.article.id);
+  if (prefs && !hasPersonalizationSignals(prefs)) {
+    await markTrendingNotificationSent(userId);
+  }
 }

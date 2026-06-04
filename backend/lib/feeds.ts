@@ -13,6 +13,7 @@ export const FEEDS: FeedConfig[] = SOURCE_CATALOG.map((entry) => ({
   sportTags: entry.sportTags,
   logoUrl: resolveSourceLogoUrl(entry),
   subscriptionPublisher: entry.subscriptionPublisher,
+  fetchTimeoutMs: entry.fetchTimeoutMs,
 }));
 
 export function listSources() {

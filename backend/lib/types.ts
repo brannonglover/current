@@ -43,4 +43,5 @@ export interface FeedConfig {
   logoUrl?: string;
   /** Known subscription publisher — strengthens per-article heuristics only. */
   subscriptionPublisher?: boolean;
+  fetchTimeoutMs?: number;
 }

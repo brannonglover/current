@@ -1,3 +1,7 @@
+import http from 'node:http';
+import https from 'node:https';
+import { URL } from 'node:url';
+
 import Parser from 'rss-parser';
 
 import {
@@ -9,27 +13,119 @@ import {
 import { FEEDS } from './feeds';
 import { normalizeFeedItem } from './normalize';
 
-const parser = new Parser({
-  timeout: 15000,
-  headers: {
-    'User-Agent': 'CurrentReader/1.0 (+https://github.com/current-app)',
-  },
-  customFields: {
-    item: [
-      ['media:content', 'mediaContent'],
-      ['media:thumbnail', 'mediaThumbnail'],
-      ['media:group', 'mediaGroup'],
-      ['media:restriction', 'mediaRestriction'],
-      ['dc:accessRights', 'accessRights'],
-    ],
-  },
-});
+const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
+const MAX_FEED_REDIRECTS = 5;
+
+const PARSER_HEADERS = {
+  Accept: 'application/rss+xml, application/xml, text/xml, */*',
+  'User-Agent': 'CurrentReader/1.0 (+https://github.com/current-app)',
+};
+
+const INSECURE_TLS_AGENT = new https.Agent({ rejectUnauthorized: false });
+
+const PARSER_CUSTOM_FIELDS = {
+  item: [
+    ['media:content', 'mediaContent'],
+    ['media:thumbnail', 'mediaThumbnail'],
+    ['media:group', 'mediaGroup'],
+    ['media:restriction', 'mediaRestriction'],
+    ['dc:accessRights', 'accessRights'],
+  ],
+};
+
+function createParser(timeoutMs: number) {
+  return new Parser({
+    timeout: timeoutMs,
+    headers: PARSER_HEADERS,
+    customFields: PARSER_CUSTOM_FIELDS,
+  });
+}
+
+function isTlsVerificationError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return (
+    code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+    code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+    /certificate/i.test(error.message)
+  );
+}
+
+function fetchFeedXml(
+  feedUrl: string,
+  timeoutMs: number,
+  allowInsecureTls: boolean,
+  redirectCount = 0,
+): Promise<string> {
+  const url = new URL(feedUrl);
+  const isHttps = url.protocol === 'https:';
+  const transport = isHttps ? https : http;
+
+  return new Promise((resolve, reject) => {
+    const req = transport.get(
+      {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        headers: PARSER_HEADERS,
+        agent: isHttps && allowInsecureTls ? INSECURE_TLS_AGENT : undefined,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
+          if (redirectCount >= MAX_FEED_REDIRECTS) {
+            reject(new Error('Too many redirects'));
+            return;
+          }
+          const nextUrl = new URL(res.headers.location, feedUrl).href;
+          fetchFeedXml(nextUrl, timeoutMs, allowInsecureTls, redirectCount + 1)
+            .then(resolve, reject);
+          return;
+        }
+
+        if (!res.statusCode || res.statusCode >= 300) {
+          reject(new Error(`Status code ${res.statusCode ?? 'unknown'}`));
+          return;
+        }
+
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () => resolve(body));
+      },
+    );
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+  });
+}
+
+async function fetchFeedXmlWithTlsFallback(feedUrl: string, timeoutMs: number): Promise<string> {
+  try {
+    return await fetchFeedXml(feedUrl, timeoutMs, false);
+  } catch (error) {
+    if (!isTlsVerificationError(error)) throw error;
+    return fetchFeedXml(feedUrl, timeoutMs, true);
+  }
+}
 
 const ITEMS_PER_FEED = Number(process.env.ITEMS_PER_FEED ?? 50);
 const MAX_ARTICLE_AGE_DAYS = Number(process.env.MAX_ARTICLE_AGE_DAYS ?? 30);
 
 export interface IngestResult {
+  feedsTotal: number;
   feedsProcessed: number;
+  feedsFailed: number;
   itemsSeen: number;
   itemsInserted: number;
   itemsUpdated: number;
@@ -40,7 +136,9 @@ export interface IngestResult {
 
 export async function ingestFeeds(): Promise<IngestResult> {
   const result: IngestResult = {
+    feedsTotal: FEEDS.length,
     feedsProcessed: 0,
+    feedsFailed: 0,
     itemsSeen: 0,
     itemsInserted: 0,
     itemsUpdated: 0,
@@ -51,7 +149,9 @@ export async function ingestFeeds(): Promise<IngestResult> {
 
   const feedResults = await Promise.allSettled(
     FEEDS.map(async (feed) => {
-      const parsed = await parser.parseURL(feed.url);
+      const timeoutMs = feed.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+      const xml = await fetchFeedXmlWithTlsFallback(feed.url, timeoutMs);
+      const parsed = await createParser(timeoutMs).parseString(xml);
       return { feed, parsed };
     }),
   );
@@ -64,6 +164,7 @@ export async function ingestFeeds(): Promise<IngestResult> {
       const message =
         feedResult.reason instanceof Error ? feedResult.reason.message : 'Unknown feed error';
       result.errors.push(`${feed.source}: ${message}`);
+      result.feedsFailed += 1;
       continue;
     }
 
@@ -72,10 +173,12 @@ export async function ingestFeeds(): Promise<IngestResult> {
 
     for (const item of parsed.items.slice(0, ITEMS_PER_FEED)) {
       result.itemsSeen += 1;
-      const article = normalizeFeedItem(item, feed);
-      if (!article) continue;
+      const normalized = normalizeFeedItem(item, feed);
+      if (!normalized) continue;
 
-      const action = upsertArticle(article);
+      const action = upsertArticle(normalized.article, {
+        feedPublishedAt: normalized.feedPublishedAt,
+      });
       if (action === 'inserted') result.itemsInserted += 1;
       else result.itemsUpdated += 1;
     }

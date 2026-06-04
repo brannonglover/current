@@ -1,7 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Platform, StyleSheet, Text, View } from 'react-native';
-import { Pressable } from 'react-native-gesture-handler';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ArticleActions } from '@/components/ArticleActions';
 import { ArticleImage } from '@/components/ArticleImage';
@@ -19,6 +18,8 @@ import { Article } from '@/types';
 interface ArticleCardProps {
   article: Article;
   height: number;
+  /** When false, taps are ignored (e.g. user just scrolled the feed). */
+  allowPress?: () => boolean;
 }
 
 function formatDate(iso: string) {
@@ -83,7 +84,7 @@ function getCardImageHeight(cardHeight: number): number {
   return Math.max(0, budgeted);
 }
 
-export function ArticleCard({ article, height }: ArticleCardProps) {
+export function ArticleCard({ article, height, allowPress }: ArticleCardProps) {
   const { colors } = useTheme();
   const router = useRouter();
   const imageHeight = getCardImageHeight(height);
@@ -92,6 +93,7 @@ export function ArticleCard({ article, height }: ArticleCardProps) {
   const requiresSubscription = article.requiresSubscription === true;
 
   function openArticle() {
+    if (allowPress && !allowPress()) return;
     rememberOpenArticle(article);
     router.push(`/article/${article.id}`);
   }

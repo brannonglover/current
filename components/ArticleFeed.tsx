@@ -42,6 +42,8 @@ interface ArticleFeedProps {
   emptyMessage?: string;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   headerExtra?: React.ReactNode;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
 }
 
 export interface ArticleFeedHandle {
@@ -63,11 +65,13 @@ function FeedCardItem({
   height,
   isLast,
   endPullDistance,
+  allowPress,
 }: {
   article: Article;
   height: number;
   isLast: boolean;
   endPullDistance: SharedValue<number>;
+  allowPress: () => boolean;
 }) {
   const stretchStyle = useAnimatedStyle(() => {
     if (!isLast) return {};
@@ -79,13 +83,23 @@ function FeedCardItem({
 
   return (
     <Animated.View style={stretchStyle}>
-      <ArticleCard article={article} height={height} />
+      <ArticleCard article={article} height={height} allowPress={allowPress} />
     </Animated.View>
   );
 }
 
 export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(function ArticleFeed(
-  { articles, title, subtitle, titleTrailing, emptyMessage, refreshControl, headerExtra },
+  {
+    articles,
+    title,
+    subtitle,
+    titleTrailing,
+    emptyMessage,
+    refreshControl,
+    headerExtra,
+    onLoadMore,
+    isLoadingMore,
+  },
   ref,
 ) {
   const { colors } = useTheme();
@@ -103,6 +117,22 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
   const isAnimatingToTopShared = useSharedValue(false);
   const maxScrollOffset = useSharedValue(0);
   const endPullDistance = useSharedValue(0);
+  const feedScrollRef = useRef({ dragging: false, endedAt: 0 });
+  const loadMoreGateRef = useRef(false);
+
+  const allowCardPress = useCallback(() => {
+    if (feedScrollRef.current.dragging) return false;
+    return Date.now() - feedScrollRef.current.endedAt > 200;
+  }, []);
+
+  const onFeedScrollBeginDrag = useCallback(() => {
+    feedScrollRef.current.dragging = true;
+  }, []);
+
+  const markFeedScrollEnded = useCallback(() => {
+    feedScrollRef.current.dragging = false;
+    feedScrollRef.current.endedAt = Date.now();
+  }, []);
 
   const onListLayout = useCallback((e: LayoutChangeEvent) => {
     setPageHeight(normalizeHeight(e.nativeEvent.layout.height));
@@ -222,6 +252,21 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
 
   useImperativeHandle(ref, () => ({ scrollToTop }), [scrollToTop]);
 
+  useEffect(() => {
+    if (!onLoadMore || isLoadingMore) return;
+    if (activeIndex < articles.length - 4) {
+      loadMoreGateRef.current = false;
+      return;
+    }
+    if (loadMoreGateRef.current) return;
+    loadMoreGateRef.current = true;
+    onLoadMore();
+  }, [activeIndex, articles.length, onLoadMore, isLoadingMore]);
+
+  useEffect(() => {
+    if (!isLoadingMore) loadMoreGateRef.current = false;
+  }, [isLoadingMore]);
+
   if (articles.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -270,6 +315,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                 height={snapMetrics.snapHeight}
                 isLast={index === articles.length - 1}
                 endPullDistance={endPullDistance}
+                allowPress={allowCardPress}
               />
             )}
             style={[styles.list, { height: pageHeight, zIndex: 0 }]}
@@ -286,8 +332,13 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
             refreshControl={refreshControl}
             scrollEventThrottle={16}
             onScroll={scrollHandler}
+            onScrollBeginDrag={onFeedScrollBeginDrag}
+            onScrollEndDrag={markFeedScrollEnded}
+            onMomentumScrollEnd={markFeedScrollEnded}
             onViewableItemsChanged={onViewableItemsChanged.current}
             viewabilityConfig={viewabilityConfig.current}
+            onEndReached={onLoadMore}
+            onEndReachedThreshold={0.35}
             getItemLayout={(_, index) => ({
               length: snapMetrics.snapHeight,
               offset: snapMetrics.snapHeight * index,

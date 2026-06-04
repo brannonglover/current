@@ -296,16 +296,36 @@ function readTimeMinutes(text: string): number {
   return Math.max(1, Math.round(words / 200));
 }
 
-function safeIsoDate(value: string | undefined): string {
-  if (!value) return new Date().toISOString();
+/** RSS publish time when the feed provides a valid date; otherwise undefined. */
+export function parseFeedPublishedAt(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed.toISOString();
+}
+
+export interface NormalizedFeedItem {
+  article: Article;
+  /** Set when RSS provides isoDate/pubDate; omitted when the feed has no usable publish time. */
+  feedPublishedAt?: string;
+}
+
+/** Article permalink from RSS/Atom item fields (link preferred, then http(s) guid). */
+function resolveFeedItemUrl(item: { link?: string; guid?: string }): string | undefined {
+  const link = item.link?.trim();
+  if (link) return link;
+
+  const guid = item.guid?.trim();
+  if (guid && /^https?:\/\//i.test(guid)) return guid;
+
+  return undefined;
 }
 
 export function normalizeFeedItem(
   item: {
     title?: string;
     link?: string;
+    guid?: string;
     pubDate?: string;
     isoDate?: string;
     contentSnippet?: string;
@@ -324,8 +344,8 @@ export function normalizeFeedItem(
     'media:restriction'?: unknown;
   },
   feed: FeedConfig,
-): Article | null {
-  const url = item.link?.trim();
+): NormalizedFeedItem | null {
+  const url = resolveFeedItemUrl(item);
   const title = decodeFeedText(item.title);
   if (!url || !title) return null;
 
@@ -335,7 +355,9 @@ export function normalizeFeedItem(
   const excerpt = stripHtml(excerptSource).slice(0, 280);
   const body = plain.slice(0, 8000) || excerpt;
 
-  const publishedAt = safeIsoDate(item.isoDate ?? item.pubDate);
+  const feedPublishedAt = parseFeedPublishedAt(item.isoDate ?? item.pubDate);
+  // Placeholder for inserts without a feed date; upsert uses SQLite now and preserves on re-ingest.
+  const publishedAt = feedPublishedAt ?? new Date().toISOString();
   const imageUrl = extractImage(item, url) ?? PLACEHOLDER_IMAGE;
   const text = `${title} ${excerpt}`;
   const topics = inferExtraTopics(text, feed.topics, feed.primaryTopic);
@@ -351,18 +373,21 @@ export function normalizeFeedItem(
   });
 
   return {
-    id: hashId(url),
-    title,
-    excerpt: excerpt || title,
-    body,
-    source: feed.source,
-    sourceLogo: feed.logoUrl,
-    imageUrl,
-    topics,
-    sportTags: sportTags.length > 0 ? sportTags : undefined,
-    readTimeMinutes: readTimeMinutes(body),
-    publishedAt,
-    url,
-    requiresSubscription: requiresSubscription || undefined,
+    article: {
+      id: hashId(url),
+      title,
+      excerpt: excerpt || title,
+      body,
+      source: feed.source,
+      sourceLogo: feed.logoUrl,
+      imageUrl,
+      topics,
+      sportTags: sportTags.length > 0 ? sportTags : undefined,
+      readTimeMinutes: readTimeMinutes(body),
+      publishedAt,
+      url,
+      requiresSubscription: requiresSubscription || undefined,
+    },
+    feedPublishedAt,
   };
 }

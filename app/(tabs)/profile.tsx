@@ -204,7 +204,7 @@ export default function ProfileScreen() {
               Trending alerts
             </Text>
             <Text style={[styles.notificationDetail, { color: colors.textSecondary }]}>
-              Alert for breaking or hot stories that match your interests.
+              Breaking stories in your topics, or hot picks from likes.
             </Text>
           </View>
         </View>

@@ -11,21 +11,39 @@ const dataDir = path.join(process.cwd(), 'data');
 const defaultDbPath = process.env.VERCEL
   ? path.join('/tmp', 'current.db')
   : path.join(dataDir, 'current.db');
-const dbPath = process.env.DATABASE_PATH ?? defaultDbPath;
+
+function resolveDbPath(): string {
+  return process.env.DATABASE_PATH ?? defaultDbPath;
+}
 
 let db: Database.Database | null = null;
+let connectedDbPath: string | null = null;
 
 function getDb() {
-  if (!db) {
-    const dbDir = path.dirname(dbPath);
-    if (dbDir !== '/tmp') {
-      mkdirSync(dbDir, { recursive: true });
-    }
-    db = new Database(dbPath);
-    db.pragma('journal_mode = WAL');
-    migrate(db);
+  const dbPath = resolveDbPath();
+  if (db && connectedDbPath === dbPath) return db;
+
+  if (db) {
+    db.close();
+    db = null;
   }
+
+  const dbDir = path.dirname(dbPath);
+  if (dbDir !== '/tmp') {
+    mkdirSync(dbDir, { recursive: true });
+  }
+  db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  migrate(db);
+  connectedDbPath = dbPath;
   return db;
+}
+
+/** @internal closes the singleton so tests can switch DATABASE_PATH */
+export function resetDbConnectionForTests(): void {
+  if (db) db.close();
+  db = null;
+  connectedDbPath = null;
 }
 
 function migrate(database: Database.Database) {
@@ -104,10 +122,11 @@ interface ArticleRow {
 
 function rowToArticle(row: ArticleRow): Article {
   const topics = JSON.parse(row.topics) as Topic[];
-  let sportTags: SportTag[] = row.sport_tags ? (JSON.parse(row.sport_tags) as SportTag[]) : [];
+  const storedTags: SportTag[] = row.sport_tags ? (JSON.parse(row.sport_tags) as SportTag[]) : [];
+  let sportTags: SportTag[] = storedTags;
 
-  if (sportTags.length === 0 && topics.includes('sports')) {
-    sportTags = inferSportTags(`${row.title} ${row.excerpt}`, []);
+  if (topics.includes('sports')) {
+    sportTags = inferSportTags(`${row.title} ${row.excerpt}`, storedTags);
   }
 
   return {
@@ -126,11 +145,16 @@ function rowToArticle(row: ArticleRow): Article {
   };
 }
 
-export function upsertArticle(article: Article): 'inserted' | 'updated' {
+export function upsertArticle(
+  article: Article,
+  options?: { feedPublishedAt?: string },
+): 'inserted' | 'updated' {
   const database = getDb();
   const existing = database
     .prepare(`SELECT id FROM articles WHERE url = ?`)
     .get(article.url) as { id: string } | undefined;
+
+  const feedPublishedAt = options?.feedPublishedAt ?? null;
 
   database
     .prepare(
@@ -139,7 +163,8 @@ export function upsertArticle(article: Article): 'inserted' | 'updated' {
         requires_subscription, read_time_minutes, published_at, url, ingested_at
       ) VALUES (
         @id, @title, @excerpt, @body, @source, @image_url, @topics, @sport_tags,
-        @requires_subscription, @read_time_minutes, @published_at, @url, datetime('now')
+        @requires_subscription, @read_time_minutes,
+        COALESCE(@feed_published_at, datetime('now')), @url, datetime('now')
       )
       ON CONFLICT(url) DO UPDATE SET
         title = excluded.title,
@@ -151,7 +176,7 @@ export function upsertArticle(article: Article): 'inserted' | 'updated' {
         sport_tags = excluded.sport_tags,
         requires_subscription = excluded.requires_subscription,
         read_time_minutes = excluded.read_time_minutes,
-        published_at = excluded.published_at,
+        published_at = COALESCE(@feed_published_at, articles.published_at),
         ingested_at = datetime('now')`,
     )
     .run({
@@ -165,35 +190,84 @@ export function upsertArticle(article: Article): 'inserted' | 'updated' {
       sport_tags: JSON.stringify(article.sportTags ?? []),
       requires_subscription: article.requiresSubscription ? 1 : 0,
       read_time_minutes: article.readTimeMinutes,
-      published_at: article.publishedAt,
+      feed_published_at: feedPublishedAt,
       url: article.url,
     });
 
   return existing ? 'updated' : 'inserted';
 }
 
-export function listArticles(options?: { limit?: number; sources?: string[] }): Article[] {
+export interface ListArticlesOptions {
+  limit?: number;
+  sources?: string[];
+  /** Opaque cursor from a prior page (`publishedAt|id`). */
+  cursor?: string;
+}
+
+export interface ListArticlesResult {
+  articles: Article[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export function encodeArticleCursor(publishedAt: string, id: string): string {
+  return `${publishedAt}|${id}`;
+}
+
+function decodeArticleCursor(cursor: string): { publishedAt: string; id: string } | null {
+  const separator = cursor.indexOf('|');
+  if (separator <= 0) return null;
+  const publishedAt = cursor.slice(0, separator);
+  const id = cursor.slice(separator + 1);
+  if (!publishedAt || !id) return null;
+  return { publishedAt, id };
+}
+
+export function listArticles(options?: ListArticlesOptions): ListArticlesResult {
   const database = getDb();
-  const limit = options?.limit ?? 200;
+  const limit = Math.min(Math.max(1, options?.limit ?? 200), 100);
   const sources = options?.sources?.filter(Boolean);
+  const decoded = options?.cursor ? decodeArticleCursor(options.cursor) : null;
+  const fetchLimit = limit + 1;
+
+  const cursorClause = decoded
+    ? ` AND (published_at < ? OR (published_at = ? AND id < ?))`
+    : '';
+  const cursorParams = decoded
+    ? [decoded.publishedAt, decoded.publishedAt, decoded.id]
+    : [];
+
+  let rows: ArticleRow[];
 
   if (sources && sources.length > 0) {
     const placeholders = sources.map(() => '?').join(', ');
-    const rows = database
+    rows = database
       .prepare(
         `SELECT * FROM articles
-         WHERE source IN (${placeholders})
-         ORDER BY published_at DESC
+         WHERE source IN (${placeholders})${cursorClause}
+         ORDER BY published_at DESC, id DESC
          LIMIT ?`,
       )
-      .all(...sources, limit) as ArticleRow[];
-    return rows.map(rowToArticle);
+      .all(...sources, ...cursorParams, fetchLimit) as ArticleRow[];
+  } else {
+    const where = decoded ? `WHERE 1=1${cursorClause}` : '';
+    rows = database
+      .prepare(
+        `SELECT * FROM articles ${where}
+         ORDER BY published_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(...cursorParams, fetchLimit) as ArticleRow[];
   }
 
-  const rows = database
-    .prepare(`SELECT * FROM articles ORDER BY published_at DESC LIMIT ?`)
-    .all(limit) as ArticleRow[];
-  return rows.map(rowToArticle);
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const articles = pageRows.map(rowToArticle);
+  const last = pageRows[pageRows.length - 1];
+  const nextCursor =
+    hasMore && last ? encodeArticleCursor(last.published_at, last.id) : null;
+
+  return { articles, hasMore, nextCursor };
 }
 
 export function setArticleRequiresSubscription(id: string, requiresSubscription: boolean): void {

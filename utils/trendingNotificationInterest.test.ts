@@ -44,9 +44,23 @@ test('isTrendingNotificationRelevant requires affinity when user has like signal
   assert.equal(isTrendingNotificationRelevant(article(['politics']), prefs), false);
 });
 
-test('isTrendingNotificationRelevant allows narrowed topic filters without likes', () => {
+test('isTrendingNotificationRelevant allows breaking story in narrowed topics without likes', () => {
   const prefs = basePrefs({ enabledTopics: ['science'] });
   assert.equal(isTrendingNotificationRelevant(article(['science']), prefs), true);
+});
+
+test('isTrendingNotificationRelevant rejects outlet burst without likes even when topics narrowed', () => {
+  const prefs = basePrefs({ enabledTopics: ['science'] });
+  const old = {
+    ...article(['science']),
+    publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  };
+  assert.equal(isTrendingNotificationRelevant(old, prefs), false);
+});
+
+test('isTrendingNotificationRelevant rejects source-only narrowing without likes', () => {
+  const prefs = basePrefs({ enabledSourceIds: ['source-a'] });
+  assert.equal(isTrendingNotificationRelevant(article(['world']), prefs), false);
 });
 
 test('isTrendingNotificationRelevant rejects all-topics feed with no personalization', () => {

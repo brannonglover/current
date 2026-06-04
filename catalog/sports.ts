@@ -5,6 +5,11 @@ export type SportTag =
   | 'football'
   | 'hockey'
   | 'soccer'
+  | 'mtb'
+  | 'cycling'
+  | 'running'
+  | 'xc'
+  | 'fitness'
   | 'premier-league'
   | 'la-liga'
   | 'serie-a'
@@ -17,6 +22,11 @@ export const SPORT_TAG_ORDER: SportTag[] = [
   'football',
   'hockey',
   'soccer',
+  'mtb',
+  'cycling',
+  'running',
+  'xc',
+  'fitness',
   'premier-league',
   'la-liga',
   'serie-a',
@@ -30,6 +40,11 @@ export const SPORT_TAG_LABELS: Record<SportTag, string> = {
   football: 'American Football',
   hockey: 'Hockey',
   soccer: 'Football',
+  mtb: 'MTB',
+  cycling: 'Cycling',
+  running: 'Running',
+  xc: 'Cross Country',
+  fitness: 'Fitness',
   'premier-league': 'Premier League',
   'la-liga': 'La Liga',
   'serie-a': 'Serie A',
@@ -44,6 +59,42 @@ const LEAGUE_TAGS: SportTag[] = [
   'bundesliga',
   'champions-league',
 ];
+
+/** Outdoor/winter terms that should not infer MTB without explicit bike context. */
+const MTB_DISQUALIFIERS =
+  /\b(ski\b|skis\b|skiing|skier|skiers|nordic|everest|mountaineer|mountaineering|alpinist|alpine ski|downhill ski|downhill\b(?! mountain bike)(?! mtb)|super-?g\b|giant slalom|slalom|biathlon|snowboard|avalanche|summit bid|survival story|winter olympics|ski racing|alpine world cup)\b/i;
+
+const MTB_EXPLICIT_BIKE =
+  /\b(mountain bikes?|mountain biking|mountain biker|\bmtb\b|enduro bike|trail bike|singletrack|dual suspension|full suspension|downhill mountain bike|downhill mtb|enduro mtb)\b/i;
+
+const MTB_CONTENT = MTB_EXPLICIT_BIKE;
+
+function patternForTag(tag: SportTag): RegExp | undefined {
+  return SPORT_INFERENCE_RULES.find(([t]) => t === tag)?.[1];
+}
+
+function hasMtbDisqualifyingContent(text: string): boolean {
+  return MTB_DISQUALIFIERS.test(text) && !MTB_EXPLICIT_BIKE.test(text);
+}
+
+function matchesMtbTag(text: string): boolean {
+  if (!MTB_CONTENT.test(text)) return false;
+  if (hasMtbDisqualifyingContent(text)) return false;
+  return true;
+}
+
+/** Dedicated MTB feeds inherit mtb unless content is clearly another sport (e.g. alpine skiing). */
+function inheritsMtbFromSource(text: string, baseTags: SportTag[]): boolean {
+  if (hasMtbDisqualifyingContent(text)) return false;
+  if (baseTags.length === 1 && baseTags[0] === 'mtb') return true;
+  return matchesMtbTag(text);
+}
+
+function matchesSportTag(tag: SportTag, text: string): boolean {
+  if (tag === 'mtb') return matchesMtbTag(text);
+  const pattern = patternForTag(tag);
+  return pattern ? pattern.test(text) : false;
+}
 
 const NFL_INFERENCE_PATTERN =
   /\b(nfl|super bowl|quarterback|touchdown|linebacker|wide receiver|american football|college football|ncaa football)\b/i;
@@ -62,14 +113,34 @@ const SPORT_INFERENCE_RULES: [SportTag, RegExp][] = [
   ['serie-a', /\b(serie a|juventus|inter milan|ac milan|ssc napoli|as roma|atalanta|lazio|fiorentina)\b/i],
   ['bundesliga', /\b(bundesliga|bayern munich|borussia dortmund|bvb|rb leipzig|bayer leverkusen|eintracht frankfurt)\b/i],
   ['champions-league', /\b(champions league|uefa champions|europa league|europa conference)\b/i],
+  [
+    'mtb',
+    MTB_CONTENT,
+  ],
+  [
+    'cycling',
+    /\b(cycling|cyclist|road bike|gravel bike|bike race|tour de france|giro d.?italia|vuelta|gran fondo|sportive|peloton|bikepacking|\bvelo\b)\b/i,
+  ],
+  [
+    'running',
+    /\b(running|runner|marathon|ultramarathon|ultra running|half marathon|trail run|5k\b|10k\b|parkrun|strava run)\b/i,
+  ],
+  [
+    'xc',
+    /\b(cross country|cross-country|\bxc\b|nordic ski|cross-country ski|biathlon|skiathlon|faster skier)\b/i,
+  ],
+  [
+    'fitness',
+    /\b(fitness|workout|strength training|weight training|hiit|gym routine|personal trainer|exercise routine)\b/i,
+  ],
 ];
 
 /** Merge source defaults with keyword inference from title/excerpt. */
 export function inferSportTags(text: string, baseTags: SportTag[] = []): SportTag[] {
-  const inferred = new Set<SportTag>(baseTags);
+  const inferred = new Set<SportTag>();
 
-  for (const [tag, pattern] of SPORT_INFERENCE_RULES) {
-    if (pattern.test(text)) inferred.add(tag);
+  for (const [tag] of SPORT_INFERENCE_RULES) {
+    if (matchesSportTag(tag, text)) inferred.add(tag);
   }
 
   // "Football" alone usually means association football; NFL-specific terms route to American football.
@@ -78,6 +149,18 @@ export function inferSportTags(text: string, baseTags: SportTag[] = []): SportTa
       inferred.add('football');
     } else {
       inferred.add('soccer');
+    }
+  }
+
+  // Single-purpose feeds inherit their tag; multi-tag sources only when content matches.
+  for (const tag of baseTags) {
+    if (inferred.has(tag)) continue;
+    if (tag === 'mtb') {
+      if (inheritsMtbFromSource(text, baseTags)) inferred.add(tag);
+      continue;
+    }
+    if (baseTags.length === 1 || matchesSportTag(tag, text)) {
+      inferred.add(tag);
     }
   }
 

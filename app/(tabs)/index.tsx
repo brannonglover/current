@@ -2,7 +2,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { ParamListBase } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { useFocusEffect, useNavigation } from 'expo-router';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 
 import { ArticleFeedHandle } from '@/components/ArticleFeed';
@@ -13,14 +13,41 @@ import { useArticles } from '@/hooks/useArticles';
 import { normalizeFeedPreferences } from '@/services/feedPreferences';
 import { isAllSourcesEnabled } from '@/services/sourcePreferences';
 import { isAllTopicsEnabled } from '@/services/topicPreferences';
-import { orderLatestFeed } from '@/utils/feedOrdering';
+import { orderLatestFeed, orderLatestFeedPage } from '@/utils/feedOrdering';
+import { Article } from '@/types';
 import { getFeedEmptyMessage } from '@/utils/feedEmptyMessage';
 
 export default function LatestScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<ParamListBase>>();
   const feedRef = useRef<ArticleFeedHandle>(null);
-  const { articles, isLoading, isRefreshing, error, notice, usingDemoArticles, refresh } = useArticles();
+  const {
+    articles,
+    feedGeneration,
+    isLoading,
+    isRefreshing,
+    isLoadingMore,
+    hasMore,
+    error,
+    notice,
+    usingDemoArticles,
+    refresh,
+    loadMore,
+  } = useArticles();
   const { preferences, filterFeedArticles, filterByEnabledSources } = usePreferences();
+  const [displayArticles, setDisplayArticles] = useState<Article[]>([]);
+  const prevFeedGenerationRef = useRef(0);
+  const prevRawLengthRef = useRef(0);
+  const prevFilterKeyRef = useRef('');
+
+  const filterKey = useMemo(
+    () =>
+      JSON.stringify({
+        topics: preferences?.enabledTopics ?? [],
+        sports: preferences?.enabledSportTags ?? [],
+        sources: preferences?.enabledSourceIds ?? [],
+      }),
+    [preferences?.enabledTopics, preferences?.enabledSportTags, preferences?.enabledSourceIds],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -35,13 +62,39 @@ export default function LatestScreen() {
     }, [navigation, refresh]),
   );
 
-  const filtered = useMemo(() => {
+  useEffect(() => {
     const filteredArticles = filterFeedArticles(articles);
     const allTopics =
       !preferences ||
       isAllTopicsEnabled(normalizeFeedPreferences(preferences).enabledTopics);
-    return orderLatestFeed(filteredArticles, { diversifyTopics: allTopics });
-  }, [articles, filterFeedArticles, preferences]);
+    const orderOpts = { diversifyTopics: allTopics };
+
+    const generationChanged = feedGeneration !== prevFeedGenerationRef.current;
+    const listShrunk = articles.length < prevRawLengthRef.current;
+    const filtersChanged = filterKey !== prevFilterKeyRef.current;
+
+    if (
+      generationChanged ||
+      listShrunk ||
+      filtersChanged ||
+      prevRawLengthRef.current === 0
+    ) {
+      setDisplayArticles(orderLatestFeed(filteredArticles, orderOpts));
+      prevFeedGenerationRef.current = feedGeneration;
+      prevFilterKeyRef.current = filterKey;
+    } else if (articles.length > prevRawLengthRef.current) {
+      setDisplayArticles((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        const newOnly = filteredArticles.filter((a) => !seen.has(a.id));
+        if (newOnly.length === 0) return prev;
+        return [...prev, ...orderLatestFeedPage(newOnly, orderOpts)];
+      });
+    }
+
+    prevRawLengthRef.current = articles.length;
+  }, [articles, feedGeneration, filterFeedArticles, preferences, filterKey]);
+
+  const filtered = displayArticles;
 
   const sourceFiltered = useMemo(
     () => filterByEnabledSources(articles),
@@ -92,6 +145,8 @@ export default function LatestScreen() {
       error={error}
       notice={notice}
       onRefresh={refresh}
+      onLoadMore={hasMore ? loadMore : undefined}
+      isLoadingMore={isLoadingMore}
       headerExtra={<FeedTopicFilterBar />}
     />
   );

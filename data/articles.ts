@@ -1,5 +1,10 @@
 import { Article } from '@/types';
 
+/**
+ * Bundled articles used when the API is unreachable in __DEV__.
+ * Each entry must keep title, excerpt, body, and `url` in sync (prefer text from RSS).
+ * Ingested articles always use the feed item link via the API (see normalize.ts).
+ */
 export const ARTICLES: Article[] = [
   {
     id: '1',
@@ -12,20 +17,23 @@ export const ARTICLES: Article[] = [
     topics: ['technology', 'science'],
     readTimeMinutes: 6,
     publishedAt: '2026-05-28T10:00:00Z',
-    url: 'https://example.com/solid-state-batteries',
+    url: 'https://www.technologyreview.com/2026/05/28/solid-state-batteries',
   },
   {
     id: '2',
-    title: 'Why Cities Are Rethinking the 15-Minute Neighborhood',
+    title: 'The Uncertain Future of the Smithsonian’s Smallest Museum',
     excerpt:
-      'Urban planners are discovering that proximity alone doesn\'t create community. Something else does.',
-    body: 'The 15-minute city — where daily needs are reachable within a short walk or bike ride — became a pandemic-era darling of urban planning. Cities from Paris to Portland rewrote zoning codes and invested in street-level retail to make the vision real.\n\nBut researchers studying these neighborhoods have found a surprising gap: people who live close to amenities don\'t necessarily use them, and they don\'t necessarily know their neighbors better. What seems to matter more is the quality of public space — parks with shade, streets safe enough for children to walk alone, and third places where strangers can become acquaintances.\n\nThe lesson is not that density fails, but that design details matter enormously. A 15-minute city built around parking lots and blank facades will feel as anonymous as any suburb.',
+      'The Anacostia Community Museum was a pioneer in preserving Black history. Will that be enough to save it from President Trump?',
+    body:
+      'In 1969, the Anacostia Neighborhood Museum, in Washington, D.C., debuted a new exhibit: “The Rat: Man’s Invited Affliction.” The display—complete with live rats—was different from what people were used to seeing from the venerable Smithsonian Institution. At the time, the main event at the Museum of History and Technology (now the National Museum of American History) was an exhibit that focused on the fanfare of presidential campaigns and conventions. But Anacostia, which had opened two years prior, was a new kind of museum. It was well known that the poor neighborhoods of D.C.—the Black neighborhoods of D.C.—had some of the worst rat problems in the country.\n\n“The Rat” was a direct response to an ongoing crisis, which made it an unusual choice for a museum. Much of the exhibit was inspired by community voices, including by children who’d told museum staff about rat bites and about vermin so large, they were mistaken for stray cats. Wall text warned against the diseases rats carried, explained different ways to kill them, and advised residents to dispose of trash in tightly covered bins. Going beyond the typically neutral language found in Smithsonian museums, the exhibit charged the Department of Public Health as complicit in creating the scourge.\n\nAnacostia, since renamed the Anacostia Community Museum, was the first federally funded museum focused on Black history, as well as the first federally funded community museum; it is still the only Smithsonian to archive and document daily life in the nation’s capital. “The Rat” set the tone for how the smallest Smithsonian would exist in the shadow of its bigger siblings. Its exhibits and projects have emphasized the history of the community itself. For longtime Anacostia residents, the building has also become a sanctuary. The museum is home to a community garden and a library, and hosts yoga classes and youth programming.',
     source: 'The Atlantic',
-    imageUrl: 'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=800&q=80',
-    topics: ['culture', 'design', 'world'],
-    readTimeMinutes: 8,
-    publishedAt: '2026-05-27T14:30:00Z',
-    url: 'https://example.com/15-minute-neighborhood',
+    imageUrl:
+      'https://cdn.theatlantic.com/thumbor/-AAp2_Uy-MTiD3bBQRGTWGhZeJA=/media/img/mt/2026/06/2026_05_29_Anacostia_Community_Museum_2/original.jpg',
+    topics: ['culture', 'politics', 'world'],
+    readTimeMinutes: 6,
+    publishedAt: '2026-06-03T14:00:00Z',
+    url: 'https://www.theatlantic.com/culture/2026/06/anacostia-community-museum-smithsonian-trump-budget/687406/',
+    requiresSubscription: true,
   },
   {
     id: '3',
@@ -38,7 +46,7 @@ export const ARTICLES: Article[] = [
     topics: ['science', 'health'],
     readTimeMinutes: 10,
     publishedAt: '2026-05-26T09:15:00Z',
-    url: 'https://example.com/human-proteome',
+    url: 'https://www.nature.com/articles/human-proteome-mapping',
   },
   {
     id: '4',
@@ -51,7 +59,7 @@ export const ARTICLES: Article[] = [
     topics: ['business', 'culture'],
     readTimeMinutes: 7,
     publishedAt: '2026-05-25T16:00:00Z',
-    url: 'https://example.com/remote-work-economics',
+    url: 'https://hbr.org/2026/05/remote-work-economics',
   },
   {
     id: '5',
@@ -64,7 +72,7 @@ export const ARTICLES: Article[] = [
     topics: ['design', 'culture'],
     readTimeMinutes: 5,
     publishedAt: '2026-05-24T11:45:00Z',
-    url: 'https://example.com/scandinavian-design',
+    url: 'https://www.dezeen.com/2026/05/24/scandinavian-design-minimalism',
   },
   {
     id: '6',
@@ -77,7 +85,7 @@ export const ARTICLES: Article[] = [
     topics: ['technology', 'politics', 'business'],
     readTimeMinutes: 9,
     publishedAt: '2026-05-23T08:00:00Z',
-    url: 'https://example.com/ai-regulation',
+    url: 'https://www.economist.com/business/2026/05/23/ai-regulation-eu',
   },
   {
     id: '7',
@@ -90,7 +98,7 @@ export const ARTICLES: Article[] = [
     topics: ['health', 'culture', 'world'],
     readTimeMinutes: 6,
     publishedAt: '2026-05-22T13:20:00Z',
-    url: 'https://example.com/mediterranean-diet',
+    url: 'https://www.nytimes.com/2026/05/22/health/mediterranean-diet-social-eating',
   },
   {
     id: '8',
@@ -103,6 +111,6 @@ export const ARTICLES: Article[] = [
     topics: ['science', 'business', 'world'],
     readTimeMinutes: 7,
     publishedAt: '2026-05-21T10:30:00Z',
-    url: 'https://example.com/renewable-storage',
+    url: 'https://www.bloomberg.com/green/articles/2026-05-21/renewable-energy-storage',
   },
 ];

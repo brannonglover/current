@@ -15,6 +15,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const origin = request.headers.get('origin');
   const limit = Number(request.nextUrl.searchParams.get('limit') ?? '200');
+  const cursor = request.nextUrl.searchParams.get('cursor') ?? undefined;
   const force = request.nextUrl.searchParams.get('refresh') === 'true';
   const sourceIds =
     request.nextUrl.searchParams
@@ -29,20 +30,23 @@ export async function GET(request: NextRequest) {
   try {
     const freshness = await ensureFreshArticles({ force });
 
-    const articles = listArticles({
+    const page = listArticles({
       limit: Number.isFinite(limit) ? limit : 200,
       sources: sourceNames.length > 0 ? sourceNames : undefined,
+      cursor,
     });
     const status = getIngestStatus();
 
     return jsonResponse(
       {
-        articles,
+        articles: page.articles,
         meta: {
           count: status.articleCount,
           lastIngestAt: status.lastIngestAt,
           ingestTriggered: freshness.ingestTriggered,
           ingestAwaited: freshness.ingestAwaited,
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
         },
       },
       origin,

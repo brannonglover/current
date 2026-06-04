@@ -67,7 +67,7 @@ export function getFeedEmptyMessage(options: {
       if (usingDemoArticles) {
         return 'Demo stories have no sports feeds. Run npm run api and npm run api:ingest for Premier League coverage.';
       }
-      return 'No stories match this sport filter yet. Pull to refresh after ingest, or enable PL sources in Profile → Sources.';
+      return 'No stories match this sport filter yet. Pull to refresh after ingest, or enable matching sources in Profile → Sources.';
     }
     if (sourcesRestricted && isAllTopicsEnabled(enabledTopics ?? [])) {
       return 'Only stories from your enabled sources are shown. Turn on more outlets in Profile → Sources, or tap All topics if a category chip is still selected.';

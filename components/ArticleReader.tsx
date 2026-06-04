@@ -19,7 +19,7 @@ import { fetchArticleReaderContent } from '@/services/articleContent';
 import { Article } from '@/types';
 import { ArticleReaderContent } from '@/types/articleContent';
 import { resolveReaderParagraphLayout } from '@/utils/articleParagraphs';
-import { openPublisherArticle } from '@/utils/openPublisherBrowser';
+import { hasOpenablePublisherUrl, openPublisherArticle } from '@/utils/openPublisherBrowser';
 
 interface ArticleReaderProps {
   article: Article;
@@ -37,6 +37,7 @@ export function ArticleReader({ article }: ArticleReaderProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const requiresSubscription = article.requiresSubscription === true;
+  const canOpenOnPublisher = hasOpenablePublisherUrl(article.url);
   const [readerContent, setReaderContent] = useState<ArticleReaderContent | null>(null);
   const [contentError, setContentError] = useState(false);
   const [isLoadingContent, setIsLoadingContent] = useState(true);
@@ -74,6 +75,8 @@ export function ArticleReader({ article }: ArticleReaderProps) {
     isLoadingContent && article.excerpt.trim() ? article.excerpt.trim() : feedLede;
   const showFeedLede = !!feedLedeText;
   const paragraphs = bodyParagraphs;
+  const hasReadableBody = paragraphs.length > 0;
+  const showLoadMoreError = contentError && !isLoadingContent && !hasReadableBody;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -114,6 +117,19 @@ export function ArticleReader({ article }: ArticleReaderProps) {
             ))}
           </View>
 
+          {canOpenOnPublisher ? (
+            <Pressable
+              onPress={() => openPublisherArticle(article.url)}
+              style={({ pressed }) => [styles.publisherLinkTop, pressed && { opacity: 0.7 }]}
+              accessibilityRole="link"
+              accessibilityLabel={`Open article on ${article.source}`}>
+              <Ionicons name="open-outline" size={14} color={colors.textSecondary} />
+              <Text style={[styles.publisherLinkTopText, { color: colors.textSecondary }]}>
+                {`Open on ${article.source}`}
+              </Text>
+            </Pressable>
+          ) : null}
+
           {showFeedLede && feedLedeText ? (
             <View
               style={[
@@ -140,7 +156,7 @@ export function ArticleReader({ article }: ArticleReaderProps) {
             </View>
           ) : null}
 
-          {contentError && !isLoadingContent ? (
+          {showLoadMoreError ? (
             <Text style={[styles.errorText, { color: colors.textSecondary }]}>
               We couldn't load more of this article in the app.
             </Text>
@@ -154,16 +170,18 @@ export function ArticleReader({ article }: ArticleReaderProps) {
               ))
             : null}
 
-          <Pressable
-            onPress={() => openPublisherArticle(article.url)}
-            style={({ pressed }) => [styles.publisherLink, pressed && { opacity: 0.7 }]}
-            accessibilityRole="link"
-            accessibilityLabel={`View full article on ${article.source}`}>
-            <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
-            <Text style={[styles.publisherLinkText, { color: colors.textSecondary }]}>
-              {`View full article on ${article.source}`}
-            </Text>
-          </Pressable>
+          {canOpenOnPublisher ? (
+            <Pressable
+              onPress={() => openPublisherArticle(article.url)}
+              style={({ pressed }) => [styles.publisherLink, pressed && { opacity: 0.7 }]}
+              accessibilityRole="link"
+              accessibilityLabel={`View full article on ${article.source}`}>
+              <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
+              <Text style={[styles.publisherLinkText, { color: colors.textSecondary }]}>
+                {`View full article on ${article.source}`}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -224,7 +242,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 12,
+  },
+  publisherLinkTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  publisherLinkTopText: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    lineHeight: 18,
   },
   topicPill: {
     paddingHorizontal: 10,

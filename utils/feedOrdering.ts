@@ -183,6 +183,21 @@ export function orderLatestFeed(articles: Article[], options?: OrderLatestFeedOp
 }
 
 /**
+ * Orders a paginated chunk of older stories for append-only infinite scroll
+ * (avoids reshuffling articles the user has already scrolled past).
+ */
+export function orderLatestFeedPage(
+  articles: Article[],
+  options?: OrderLatestFeedOptions,
+): Article[] {
+  if (articles.length <= 1) return articles;
+  if (options?.diversifyTopics) return interleaveByPrimaryTopic(articles);
+  const nowMs = Date.now();
+  const burstCounts = sourceBurstCounts(articles, nowMs);
+  return interleaveBySource(articles, { queueOrder: { burstCounts } });
+}
+
+/**
  * For You: keep affinity rank within each outlet, but interleave outlets and
  * surface the trending window first.
  */

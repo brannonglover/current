@@ -14,6 +14,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const API_PORT = 3001;
 
+function mergeNodeOptions(existing, flag) {
+  const parts = (existing ?? '')
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.includes(flag)) parts.push(flag);
+  return parts.join(' ');
+}
+
 async function main() {
   const existing = await probeApi();
   if (existing.ok) {
@@ -48,6 +57,7 @@ async function main() {
     stdio: 'inherit',
     env: {
       ...process.env,
+      NODE_OPTIONS: mergeNodeOptions(process.env.NODE_OPTIONS, '--use-system-ca'),
       WATCHPACK_POLLING: 'true',
       CHOKIDAR_USEPOLLING: 'true',
     },

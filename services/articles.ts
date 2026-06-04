@@ -10,6 +10,9 @@ interface ArticlesResponse {
     lastIngestAt: string | null;
     ingestTriggered?: boolean;
     ingestAwaited?: boolean;
+    hasMore?: boolean;
+    nextCursor?: string | null;
+    count?: number;
   };
 }
 
@@ -18,12 +21,23 @@ export interface FetchArticlesResult {
   meta?: ArticlesResponse['meta'] & { usingFallback?: boolean };
 }
 
+export interface FetchArticlesOptions {
+  forceRefresh?: boolean;
+  sourceIds?: string[];
+  cursor?: string;
+  limit?: number;
+}
+
 interface ArticleResponse {
   article: Article;
 }
 
-const ARTICLE_FETCH_LIMIT = 250;
+/** Page size for initial load and infinite scroll. */
+export const ARTICLE_PAGE_SIZE = 80;
 const FETCH_TIMEOUT_MS = 12_000;
+
+const EMPTY_FEED_MESSAGE =
+  'No articles in the feed yet. Run "npm run api:ingest" to fetch stories from your sources.';
 
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -74,23 +88,19 @@ function withResolvedArticleFields(articles: Article[]): Article[] {
   }));
 }
 
-function devFallbackArticles(): FetchArticlesResult {
-  return {
-    articles: withResolvedArticleFields(ARTICLES),
-    meta: { lastIngestAt: null, usingFallback: true },
-  };
-}
-
-export async function fetchArticles(options?: {
-  forceRefresh?: boolean;
-  sourceIds?: string[];
-}): Promise<FetchArticlesResult> {
+function buildArticlesSearchParams(options?: FetchArticlesOptions): URLSearchParams {
   const params = new URLSearchParams();
-  params.set('limit', String(ARTICLE_FETCH_LIMIT));
+  params.set('limit', String(options?.limit ?? ARTICLE_PAGE_SIZE));
   if (options?.forceRefresh) params.set('refresh', 'true');
+  if (options?.cursor) params.set('cursor', options.cursor);
   if (options?.sourceIds && options.sourceIds.length > 0) {
     params.set('sources', options.sourceIds.join(','));
   }
+  return params;
+}
+
+export async function fetchArticles(options?: FetchArticlesOptions): Promise<FetchArticlesResult> {
+  const params = buildArticlesSearchParams(options);
 
   let response: Response;
   try {
@@ -99,20 +109,24 @@ export async function fetchArticles(options?: {
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes('timed out')) {
-      if (__DEV__) return devFallbackArticles();
       throw error;
     }
-    if (__DEV__) return devFallbackArticles();
     throw new Error(apiUnreachableMessage());
   }
 
   const data = await parseJson<ArticlesResponse>(response);
-  if (data.articles.length === 0) {
-    if (__DEV__) return devFallbackArticles();
-    throw new Error('No articles in the feed yet. Run "npm run api:ingest" to fetch stories from your sources.');
+  if (data.articles.length === 0 && !options?.cursor) {
+    throw new Error(EMPTY_FEED_MESSAGE);
   }
 
   return { articles: withResolvedArticleFields(data.articles), meta: data.meta };
+}
+
+const BUNDLED_DEMO_IDS = new Set(ARTICLES.map((article) => article.id));
+
+function bundledDemoArticle(id: string): Article | undefined {
+  const demo = ARTICLES.find((article) => article.id === id);
+  return demo ? withResolvedArticleFields([demo])[0] : undefined;
 }
 
 export async function fetchArticleById(id: string): Promise<Article | undefined> {
@@ -120,10 +134,18 @@ export async function fetchArticleById(id: string): Promise<Article | undefined>
     const response = await fetch(`${API_URL}/api/articles/${id}`, {
       headers: { Accept: 'application/json' },
     });
-    if (response.status === 404) return undefined;
-    const data = await parseJson<ArticleResponse>(response);
-    return data.article ? withResolvedArticleFields([data.article])[0] : undefined;
+    if (response.ok) {
+      const data = await parseJson<ArticleResponse>(response);
+      return data.article ? withResolvedArticleFields([data.article])[0] : undefined;
+    }
+    if (response.status === 404 && __DEV__ && BUNDLED_DEMO_IDS.has(id)) {
+      return bundledDemoArticle(id);
+    }
+    return undefined;
   } catch {
+    if (__DEV__ && BUNDLED_DEMO_IDS.has(id)) {
+      return bundledDemoArticle(id);
+    }
     return undefined;
   }
 }

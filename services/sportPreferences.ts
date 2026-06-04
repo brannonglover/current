@@ -4,9 +4,10 @@ import { Article, SportTag, Topic } from '@/types';
 import { isAllTopicsEnabled } from './topicPreferences';
 
 function articleSportTags(article: Article): SportTag[] {
-  if (article.sportTags && article.sportTags.length > 0) return article.sportTags;
   if (!article.topics.includes('sports')) return [];
-  return inferSportTags(`${article.title} ${article.excerpt}`, []);
+  const text = `${article.title} ${article.excerpt}`;
+  // Re-derive tags from content so stale broad source defaults do not leak into filters.
+  return inferSportTags(text, article.sportTags ?? []);
 }
 
 /** Empty enabledSportTags means all sports/leagues within the Sports topic filter. */
@@ -28,7 +29,7 @@ export function filterArticlesBySportTags(
 
   const enabled = new Set(enabledSportTags);
   return articles.filter((article) => {
-    if (!article.topics.includes('sports')) return true;
+    if (!article.topics.includes('sports')) return false;
     const tags = articleSportTags(article);
     return tags.some((tag) => enabled.has(tag));
   });

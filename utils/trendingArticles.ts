@@ -11,6 +11,11 @@ function publishedAtMs(article: Article): number {
   return new Date(article.publishedAt).getTime();
 }
 
+/** Published within the last hour — eligible for cold-start trending alerts. */
+export function isBreakingTrendingArticle(article: Article, nowMs: number = Date.now()): boolean {
+  return nowMs - publishedAtMs(article) <= HOT_BREAKING_RECENCY_MS;
+}
+
 export function isInTrendingWindow(article: Article, nowMs: number): boolean {
   return nowMs - publishedAtMs(article) <= TRENDING_WINDOW_MS;
 }

@@ -16,6 +16,8 @@ interface ArticleFeedScreenProps {
   error?: string | null;
   notice?: string | null;
   onRefresh?: () => void;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
   headerExtra?: React.ReactNode;
 }
 
@@ -32,6 +34,8 @@ export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreen
       error,
       notice,
       onRefresh,
+      onLoadMore,
+      isLoadingMore,
       headerExtra,
     },
     ref,
@@ -77,6 +81,8 @@ export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreen
           ) : undefined
         }
         headerExtra={headerExtra}
+        onLoadMore={onLoadMore}
+        isLoadingMore={isLoadingMore}
       />
     </View>
   );

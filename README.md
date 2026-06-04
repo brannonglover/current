@@ -44,7 +44,7 @@ npm start
 - **iOS Simulator:** `EXPO_PUBLIC_API_URL=http://localhost:3001` works as-is.
 - **Physical device:** omit `EXPO_PUBLIC_API_URL` in Expo Go (auto-detects your LAN IP from Metro), or set it explicitly, e.g. `http://192.168.1.94:3001` (same Wi‑Fi as your phone). The API must be running (`npm run api`).
 
-If the API is down during development, the app falls back to bundled demo articles so feeds stay usable.
+If the API is down during development, the app falls back to bundled demo articles so feeds stay usable. Demo entries keep title, excerpt, and `url` aligned (often copied from RSS). With the API running (`npm run api` + ingest), article URLs come from each feed item’s link field via `normalize.ts`.
 
 Pull down on a feed tab to refresh articles from the API.
 
