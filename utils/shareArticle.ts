@@ -2,7 +2,7 @@ import { Platform, Share, ShareContent } from 'react-native';
 
 import { Article } from '@/types';
 
-/** Publisher URL — never a Beacon deep link. */
+/** Publisher URL — never a Phora deep link. */
 export function getPublisherShareUrl(article: Article): string | null {
   const url = article.url?.trim();
   if (!url) return null;

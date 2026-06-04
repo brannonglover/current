@@ -12,7 +12,7 @@ import { useColorScheme as useSystemColorScheme } from 'react-native';
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ColorScheme = 'light' | 'dark';
 
-const THEME_PREFERENCE_KEY = '@beacon/theme-preference';
+const THEME_PREFERENCE_KEY = '@phora/theme-preference';
 
 interface ThemeContextValue {
   preference: ThemePreference;

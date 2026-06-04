@@ -42,23 +42,23 @@ validateEasBuildEnv();
 
 module.exports = {
   expo: {
-    name: "Beacon",
-    slug: "beacon",
+    name: "Phora",
+    slug: "phora",
     version,
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "beacon",
+    scheme: "phora",
     userInterfaceStyle: "automatic",
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.brannonglover.beacon",
+      bundleIdentifier: "com.brannonglover.phora",
       buildNumber,
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
     },
     android: {
-      package: "com.brannonglover.beacon",
+      package: "com.brannonglover.phora",
       adaptiveIcon: {
         backgroundColor: "#E6F4FE",
         foregroundImage: "./assets/images/android-icon-foreground.png",
@@ -98,7 +98,7 @@ module.exports = {
     },
     extra: {
       eas: {
-        projectId: "c006783f-187e-46e7-aa7c-38c7a5e3848a",
+        projectId: "9eb5a4d0-6798-4ce0-91b7-319092b0e4c0",
       },
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
