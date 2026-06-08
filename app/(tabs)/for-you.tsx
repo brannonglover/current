@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ArticleFeedScreen } from '@/components/ArticleFeedScreen';
 import { FeedTopicFilterBar } from '@/components/FeedTopicFilterBar';
@@ -8,6 +8,7 @@ import { getPersonalizedFeed, hasLikedArticles } from '@/services/recommendation
 import { isAllSourcesEnabled } from '@/services/sourcePreferences';
 import { getForYouEmptyMessage } from '@/utils/feedEmptyMessage';
 import { orderPersonalizedFeed } from '@/utils/feedOrdering';
+import { Article } from '@/types';
 
 export default function ForYouScreen() {
   const {
@@ -16,24 +17,69 @@ export default function ForYouScreen() {
     personalizationSummary,
     filterFeedArticles,
   } = usePreferences();
-  const { articles, isLoading, isRefreshing, error, notice, usingDemoArticles, refresh } = useArticles();
+  const {
+    articles,
+    feedGeneration,
+    isLoading,
+    isRefreshing,
+    error,
+    notice,
+    usingDemoArticles,
+    refresh,
+  } = useArticles();
 
   const likedArticlesReady = preferences != null;
   const userHasLikedArticles = likedArticlesReady && hasLikedArticles(preferences);
+  const [displayArticles, setDisplayArticles] = useState<Article[]>([]);
+  const prevFeedGenerationRef = useRef(0);
+  const prevRawLengthRef = useRef(0);
 
-  const filtered = useMemo(
-    () => filterFeedArticles(articles),
-    [articles, filterFeedArticles],
-  );
+  useEffect(() => {
+    if (!userHasLikedArticles || !preferences) {
+      setDisplayArticles([]);
+      prevRawLengthRef.current = 0;
+      return;
+    }
 
-  const personalized = useMemo(() => {
-    if (!userHasLikedArticles) return [];
-    return orderPersonalizedFeed(getPersonalizedFeed(filtered, preferences));
-  }, [filtered, preferences, userHasLikedArticles]);
+    const filtered = filterFeedArticles(articles);
+    const ranked = getPersonalizedFeed(filtered, preferences);
+    const generationChanged = feedGeneration !== prevFeedGenerationRef.current;
+
+    if (generationChanged || prevRawLengthRef.current === 0) {
+      setDisplayArticles(orderPersonalizedFeed(ranked));
+      prevFeedGenerationRef.current = feedGeneration;
+    } else if (articles.length > prevRawLengthRef.current) {
+      setDisplayArticles((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        const newOnly = ranked.filter((a) => !seen.has(a.id));
+        if (newOnly.length === 0) return prev;
+        return [...orderPersonalizedFeed(newOnly), ...prev];
+      });
+    } else if (prevRawLengthRef.current > 0) {
+      setDisplayArticles((prev) => {
+        if (prev.length === 0) return prev;
+        const byId = new Map(ranked.map((a) => [a.id, a]));
+        let changed = false;
+        const next = prev
+          .filter((a) => byId.has(a.id))
+          .map((a) => {
+            const updated = byId.get(a.id)!;
+            if (updated !== a) changed = true;
+            return updated;
+          });
+        return changed || next.length !== prev.length ? next : prev;
+      });
+    }
+
+    prevRawLengthRef.current = articles.length;
+  }, [articles, feedGeneration, filterFeedArticles, preferences, userHasLikedArticles]);
+
+  const personalized = displayArticles;
 
   const emptyMessage = useMemo(
-    () =>
-      getForYouEmptyMessage({
+    () => {
+      const filtered = filterFeedArticles(articles);
+      return getForYouEmptyMessage({
         error,
         totalCount: articles.length,
         filteredCount: personalized.length,
@@ -44,17 +90,19 @@ export default function ForYouScreen() {
           !!preferences && !isAllSourcesEnabled(preferences.enabledSourceIds),
         usingDemoArticles,
         hasLikedArticles: userHasLikedArticles,
-      }),
+      });
+    },
     [
       error,
       articles.length,
       personalized.length,
-      filtered.length,
       preferences?.enabledTopics,
       preferences?.enabledSportTags,
       preferences?.enabledSourceIds,
       usingDemoArticles,
       userHasLikedArticles,
+      filterFeedArticles,
+      articles,
     ],
   );
 

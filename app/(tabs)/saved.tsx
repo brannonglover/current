@@ -7,21 +7,17 @@ import { LikedArticleList } from '@/components/LikedArticleList';
 import { LikedFoldersBar } from '@/components/LikedFoldersBar';
 import { TAB_BAR_HEIGHT } from '@/constants/Layout';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import { useArticles } from '@/hooks/useArticles';
+import { useLikedArticles } from '@/hooks/useLikedArticles';
 import { useTheme } from '@/hooks/useTheme';
 
 export default function SavedScreen() {
   const { colors } = useTheme();
-  const { preferences, filterFeedArticles, folders, createFolder } = usePreferences();
-  const { articles, isLoading, isRefreshing, error, notice, refresh } = useArticles();
+  const { preferences, folders, createFolder } = usePreferences();
+  const { articles: allLiked, isLoading, isRefreshing, error, notice, refresh } =
+    useLikedArticles();
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [organizeArticleId, setOrganizeArticleId] = useState<string | null>(null);
-
-  const allLiked = useMemo(() => {
-    const likedIds = new Set(preferences?.likedArticleIds ?? []);
-    return filterFeedArticles(articles).filter((a) => likedIds.has(a.id));
-  }, [articles, preferences, filterFeedArticles]);
 
   const displayed = useMemo(() => {
     if (!selectedFolderId) return allLiked;
@@ -34,6 +30,7 @@ export default function SavedScreen() {
   }, [allLiked, selectedFolderId, folders]);
 
   const selectedFolder = folders.find((f) => f.id === selectedFolderId);
+  const likedCount = preferences?.likedArticleIds.length ?? 0;
 
   const subtitle = selectedFolder
     ? `${displayed.length} ${displayed.length === 1 ? 'article' : 'articles'} in ${selectedFolder.name}`
@@ -41,9 +38,11 @@ export default function SavedScreen() {
 
   const emptyMessage = selectedFolder
     ? `Nothing in "${selectedFolder.name}" yet. Long press a saved article to add it here.`
-    : 'Like a story to save it here. Long press a saved article to add it to folders.';
+    : likedCount > 0 && allLiked.length === 0
+      ? 'Loading your saved stories…'
+      : 'Like a story to save it here. Long press a saved article to add it to folders.';
 
-  if (isLoading && allLiked.length === 0) {
+  if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.text} />

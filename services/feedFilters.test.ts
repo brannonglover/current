@@ -11,6 +11,7 @@ import { Article, UserPreferences } from '@/types';
 function basePrefs(overrides: Partial<UserPreferences> = {}): UserPreferences {
   return {
     likedArticleIds: [],
+    likedArticles: {},
     topicScores: Object.fromEntries(CURIOSITY_ORDER.map((t) => [t, 0])) as UserPreferences['topicScores'],
     sourceScores: {},
     keywordScores: {},

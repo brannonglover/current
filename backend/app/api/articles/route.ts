@@ -5,6 +5,8 @@ import { getIngestStatus, listArticles } from '@/lib/db';
 import { getSourceNameById } from '@/lib/feeds';
 import { ensureFreshArticles } from '@/lib/ingest-scheduler';
 
+export const maxDuration = 60;
+
 export async function OPTIONS(request: NextRequest) {
   return new Response(null, {
     status: 204,

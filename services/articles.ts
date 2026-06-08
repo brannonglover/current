@@ -35,13 +35,19 @@ interface ArticleResponse {
 /** Page size for initial load and infinite scroll. */
 export const ARTICLE_PAGE_SIZE = 80;
 const FETCH_TIMEOUT_MS = 12_000;
+/** First page may wait on cold-start ingest; allow longer than paginated requests. */
+const INITIAL_FETCH_TIMEOUT_MS = 60_000;
 
 const EMPTY_FEED_MESSAGE =
   'No articles in the feed yet. Run "npm run api:ingest" to fetch stories from your sources.';
 
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = FETCH_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -111,12 +117,16 @@ function buildArticlesSearchParams(options?: FetchArticlesOptions): URLSearchPar
 
 export async function fetchArticles(options?: FetchArticlesOptions): Promise<FetchArticlesResult> {
   const params = buildArticlesSearchParams(options);
+  const isInitialPage = !options?.cursor;
+  const timeoutMs = isInitialPage ? INITIAL_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
 
   let response: Response;
   try {
-    response = await fetchWithTimeout(`${API_URL}/api/articles?${params.toString()}`, {
-      headers: { Accept: 'application/json' },
-    });
+    response = await fetchWithTimeout(
+      `${API_URL}/api/articles?${params.toString()}`,
+      { headers: { Accept: 'application/json' } },
+      timeoutMs,
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes('timed out')) {
       throw error;
@@ -125,7 +135,11 @@ export async function fetchArticles(options?: FetchArticlesOptions): Promise<Fet
   }
 
   const data = await parseJson<ArticlesResponse>(response);
-  if (data.articles.length === 0 && !options?.cursor) {
+  if (data.articles.length === 0 && isInitialPage) {
+    const ingestPending = data.meta?.ingestTriggered && !data.meta?.ingestAwaited;
+    if (ingestPending) {
+      return { articles: [], meta: data.meta };
+    }
     throw new Error(EMPTY_FEED_MESSAGE);
   }
 

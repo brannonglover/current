@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
+import { ArticlesProvider } from '@/contexts/ArticlesContext';
 import Colors from '@/constants/Colors';
 import { TAB_BAR_HEIGHT, TAB_BAR_PADDING_BOTTOM, TAB_BAR_PADDING_TOP } from '@/constants/Layout';
 export default function TabLayout() {
   const colors = Colors.dark;
 
   return (
+    <ArticlesProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -55,5 +57,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </ArticlesProvider>
   );
 }

@@ -24,6 +24,7 @@ export async function getPreferences(userId: string): Promise<UserPreferences> {
   if (!raw) {
     return {
       likedArticleIds: [],
+      likedArticles: {},
       topicScores: { ...DEFAULT_TOPIC_SCORES },
       sourceScores: {},
       keywordScores: {},
@@ -37,6 +38,7 @@ export async function getPreferences(userId: string): Promise<UserPreferences> {
   const parsed = JSON.parse(raw) as Partial<UserPreferences>;
   return normalizeFeedPreferences({
     likedArticleIds: parsed.likedArticleIds ?? [],
+    likedArticles: parsed.likedArticles ?? {},
     topicScores: { ...DEFAULT_TOPIC_SCORES, ...parsed.topicScores },
     sourceScores: parsed.sourceScores ?? {},
     keywordScores: parsed.keywordScores ?? {},

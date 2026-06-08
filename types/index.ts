@@ -63,6 +63,8 @@ export interface LikedFolder {
 
 export interface UserPreferences {
   likedArticleIds: string[];
+  /** Cached article metadata so Liked survives feed refreshes and pagination. */
+  likedArticles: Record<string, Article>;
   topicScores: Record<Topic, number>;
   /** Outlet names the user likes often (article.source). */
   sourceScores: Record<string, number>;

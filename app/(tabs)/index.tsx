@@ -85,7 +85,20 @@ export default function LatestScreen() {
         const seen = new Set(prev.map((a) => a.id));
         const newOnly = filteredArticles.filter((a) => !seen.has(a.id));
         if (newOnly.length === 0) return prev;
-        return [...prev, ...orderLatestFeedPage(newOnly, orderOpts)];
+        return [...orderLatestFeedPage(newOnly, orderOpts), ...prev];
+      });
+    } else if (prevRawLengthRef.current > 0) {
+      setDisplayArticles((prev) => {
+        if (prev.length === 0) return prev;
+        const byId = new Map(filteredArticles.map((a) => [a.id, a]));
+        let changed = false;
+        const next = prev.map((a) => {
+          const updated = byId.get(a.id);
+          if (!updated) return a;
+          if (updated !== a) changed = true;
+          return updated;
+        });
+        return changed ? next : prev;
       });
     }
 

@@ -29,7 +29,12 @@ import {
 } from '@/services/topicPreferences';
 import { applyFeedFilters } from '@/services/feedFilters';
 import { normalizeFeedPreferences } from '@/services/feedPreferences';
+import {
+  mergeLikedArticleSnapshot,
+  removeLikedArticleSnapshot,
+} from '@/services/likedArticles';
 import { requestTrendingNotificationPermission } from '@/services/notificationSetup';
+import { warmArticleCache } from '@/services/articleCache';
 import { getPreferences, savePreferences } from '@/services/storage';
 import { applyArticleLikeSignals } from '@/services/interestSignals';
 import {
@@ -49,6 +54,7 @@ interface PreferencesContextValue {
   isLoading: boolean;
   isLiked: (articleId: string) => boolean;
   toggleLike: (article: Article) => Promise<void>;
+  rememberLikedArticles: (articles: Article[]) => Promise<void>;
   topTopics: string[];
   topSources: string[];
   topKeywords: string[];
@@ -80,13 +86,14 @@ const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
-  const [sources, setSources] = useState<FeedSource[]>([]);
+  const [sources, setSources] = useState<FeedSource[]>(FALLBACK_SOURCES);
   const [isLoading, setIsLoading] = useState(true);
   const preferencesRef = useRef<UserPreferences | null>(null);
 
   preferencesRef.current = preferences;
 
   useEffect(() => {
+    warmArticleCache();
     fetchSources().then(setSources);
   }, []);
 
@@ -154,7 +161,25 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
           }))
         : preferences.folders;
 
-      await persist({ ...preferences, likedArticleIds, ...signals, folders });
+      const likedArticles = liked
+        ? removeLikedArticleSnapshot(preferences.likedArticles ?? {}, article.id)
+        : mergeLikedArticleSnapshot(preferences.likedArticles ?? {}, article);
+
+      await persist({ ...preferences, likedArticleIds, likedArticles, ...signals, folders });
+    },
+    [user, preferences, persist],
+  );
+
+  const rememberLikedArticles = useCallback(
+    async (articles: Article[]) => {
+      if (!user || !preferences || articles.length === 0) return;
+
+      let likedArticles = preferences.likedArticles ?? {};
+      for (const article of articles) {
+        likedArticles = mergeLikedArticleSnapshot(likedArticles, article);
+      }
+
+      await persist({ ...preferences, likedArticles });
     },
     [user, preferences, persist],
   );
@@ -429,6 +454,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       isLoading,
       isLiked,
       toggleLike,
+      rememberLikedArticles,
       topTopics,
       topSources,
       topKeywords,
@@ -460,6 +486,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       isLoading,
       isLiked,
       toggleLike,
+      rememberLikedArticles,
       topTopics,
       topSources,
       topKeywords,

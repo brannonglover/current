@@ -1,0 +1,33 @@
+import { fetchArticles, FetchArticlesResult } from '@/services/articles';
+
+let warmPromise: Promise<FetchArticlesResult> | null = null;
+let warmResult: FetchArticlesResult | null = null;
+
+/** Kick off an article fetch as early as possible (e.g. on app boot). */
+export function warmArticleCache(): void {
+  if (warmPromise || warmResult) return;
+  warmPromise = fetchArticles()
+    .then((result) => {
+      warmResult = result;
+      return result;
+    })
+    .finally(() => {
+      warmPromise = null;
+    });
+}
+
+/** Returns a warm fetch once, so the feed can adopt it instead of starting over. */
+export function takeWarmArticleCache(): Promise<FetchArticlesResult> | null {
+  if (warmPromise) {
+    const pending = warmPromise;
+    warmPromise = null;
+    warmResult = null;
+    return pending;
+  }
+  if (warmResult) {
+    const cached = warmResult;
+    warmResult = null;
+    return Promise.resolve(cached);
+  }
+  return null;
+}
