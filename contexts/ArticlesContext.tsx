@@ -13,12 +13,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { takeWarmArticleCache } from '@/services/articleCache';
 import { fetchArticles, FetchArticlesResult } from '@/services/articles';
+import { loadFeedSnapshot, saveFeedSnapshot } from '@/services/feedPersistence';
 import { applyFeedFilters, applyTrendingNotificationFilters } from '@/services/feedFilters';
-import { normalizeFeedPreferences } from '@/services/feedPreferences';
 import { getEnabledSourceIds, isAllSourcesEnabled } from '@/services/sourcePreferences';
-import { isAllTopicsEnabled } from '@/services/topicPreferences';
 import { processHotTrendingNotifications } from '@/services/trendingNotifications';
 import { Article } from '@/types';
+import { ingestNoticeForFetch } from '@/utils/ingestNotice';
+import { shouldShowArticleFeedLoading } from '@/utils/feedLoadingState';
 import {
   newcomersFromFeedMerge,
   updateExistingFeedArticles,
@@ -44,7 +45,6 @@ interface UseArticlesResult {
 type LoadMode = 'initial' | 'refresh' | 'silent' | 'append';
 
 const BACKGROUND_INGEST_REFETCH_MS = 4_000;
-const PENDING_INGEST_NOTICE = 'Fetching latest stories…';
 const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000] as const;
 
 const silentRefreshListeners = new Set<() => void>();
@@ -93,6 +93,8 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [usingDemoArticles] = useState(false);
+  const [persistedHydrated, setPersistedHydrated] = useState(false);
+  const [hadPersistedFeed, setHadPersistedFeed] = useState(false);
   const appState = useRef(AppState.currentState);
   const refreshInFlightRef = useRef(0);
   const loadMoreInFlightRef = useRef(false);
@@ -111,27 +113,25 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   );
   const hasPendingArticles = pendingCount > 0;
 
-  const allTopicsSelected = useMemo(() => {
-    if (!preferences) return true;
-    return isAllTopicsEnabled(normalizeFeedPreferences(preferences).enabledTopics);
-  }, [preferences]);
-
   const sourceIds = useMemo(() => {
     if (sources.length === 0) return [];
-    if (!preferences || allTopicsSelected) return sources.map((s) => s.id);
+    if (!preferences) return sources.map((s) => s.id);
     return getEnabledSourceIds(sources, preferences.enabledSourceIds);
-  }, [preferences, sources, allTopicsSelected]);
+  }, [preferences, sources]);
 
-  const sourceIdsKey = allTopicsSelected ? '__all_topics__' : sourceIds.join(',');
+  const sourceIdsKey = useMemo(() => {
+    if (!preferences || isAllSourcesEnabled(preferences.enabledSourceIds)) {
+      return '__all_sources__';
+    }
+    return sourceIds.join(',');
+  }, [preferences, sourceIds]);
 
   const feedReady = !!user && !authLoading && !preferencesLoading;
 
   const requestArticles = useCallback(
     async (mode: LoadMode, forceRefresh = false, cursor?: string) => {
       const restrictSources =
-        preferences &&
-        !allTopicsSelected &&
-        !isAllSourcesEnabled(preferences.enabledSourceIds);
+        preferences && !isAllSourcesEnabled(preferences.enabledSourceIds);
 
       if (mode === 'initial' && !warmCacheUsedRef.current && !cursor) {
         const warm = takeWarmArticleCache();
@@ -147,7 +147,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
         cursor: mode === 'append' ? cursor : undefined,
       });
     },
-    [sourceIds, preferences, allTopicsSelected],
+    [sourceIds, preferences],
   );
 
   const applyFetchResult = useCallback(
@@ -189,11 +189,19 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
       setHasMore(meta?.hasMore ?? false);
       setNextCursor(meta?.nextCursor ?? null);
 
+      if (mode !== 'append') {
+        setNotice(
+          ingestNoticeForFetch({
+            ingestPending: isIngestPending(meta),
+            mode,
+            persistedArticleCount: articlesRef.current.length,
+            fetchedArticleCount: data.length,
+          }),
+        );
+      }
+
       if (isIngestPending(meta)) {
-        setNotice(PENDING_INGEST_NOTICE);
         scheduleGlobalSilentRefresh();
-      } else if (mode !== 'append') {
-        setNotice(null);
       }
 
       if (data.length > 0) {
@@ -208,8 +216,16 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
         const forTrending = applyTrendingNotificationFilters(data, preferences, sources);
         void processHotTrendingNotifications(user.id, forTrending, true, preferences);
       }
+
+      if (user && mode !== 'append' && data.length > 0) {
+        const toPersist =
+          mode === 'silent'
+            ? updateExistingFeedArticles(articlesRef.current, data)
+            : data;
+        void saveFeedSnapshot(user.id, sourceIdsKey, toPersist);
+      }
     },
-    [user, preferences, sources],
+    [user, preferences, sources, sourceIdsKey],
   );
 
   const load = useCallback(
@@ -241,7 +257,14 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
 
             if (data.length === 0 && isIngestPending(meta) && mode !== 'append') {
               if (generation === fetchGenerationRef.current) {
-                setNotice(PENDING_INGEST_NOTICE);
+                setNotice(
+                  ingestNoticeForFetch({
+                    ingestPending: true,
+                    mode,
+                    persistedArticleCount: articlesRef.current.length,
+                    fetchedArticleCount: data.length,
+                  }),
+                );
                 scheduleGlobalSilentRefresh();
               }
               if (attempt < maxAttempts - 1) {
@@ -263,7 +286,10 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
               continue;
             }
             if (generation !== fetchGenerationRef.current) return;
-            if (mode === 'silent' || mode === 'append') return;
+            if (mode === 'silent' || mode === 'append') {
+              if (articlesRef.current.length > 0) setNotice(null);
+              return;
+            }
             if (articlesRef.current.length > 0) return;
             setError(e instanceof Error ? e.message : 'Failed to load articles');
             setNotice(null);
@@ -290,14 +316,52 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   loadRef.current = load;
 
   useEffect(() => {
-    if (!feedReady) return;
+    if (!user) {
+      setArticles([]);
+      setIsLoading(true);
+      setPersistedHydrated(true);
+      setHadPersistedFeed(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPersistedHydrated(false);
+    if (articlesRef.current.length === 0) {
+      setIsLoading(true);
+    }
+
+    void (async () => {
+      const snapshot = await loadFeedSnapshot(user.id, sourceIdsKey);
+      if (cancelled) return;
+
+      if (snapshot && snapshot.length > 0) {
+        setArticles(snapshot);
+        setIsLoading(false);
+        setHadPersistedFeed(true);
+      } else {
+        setHadPersistedFeed(false);
+        if (articlesRef.current.length === 0) {
+          setIsLoading(true);
+        }
+      }
+      setPersistedHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, sourceIdsKey]);
+
+  useEffect(() => {
+    if (!feedReady || !persistedHydrated) return;
 
     fetchGenerationRef.current += 1;
     setPendingArticles([]);
+    setNotice(null);
     setNextCursor(null);
     setHasMore(false);
-    void loadRef.current?.('initial');
-  }, [sourceIdsKey, feedReady]);
+    void loadRef.current?.(hadPersistedFeed ? 'silent' : 'initial');
+  }, [sourceIdsKey, feedReady, persistedHydrated, hadPersistedFeed]);
 
   useEffect(() => {
     const onSilentRefresh = () => {
@@ -337,7 +401,12 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     setPendingArticles([]);
   }, []);
 
-  const showLoading = isLoading || (feedReady === false && articles.length === 0);
+  const showLoading = shouldShowArticleFeedLoading({
+    articleCount: articles.length,
+    isLoading,
+    feedReady,
+    persistedHydrated,
+  });
 
   const value = useMemo(
     () => ({

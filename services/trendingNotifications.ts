@@ -7,11 +7,9 @@ import {
   scheduleLocalNotification,
   TRENDING_CHANNEL_ID,
 } from '@/services/notificationSetup';
-import { normalizeFeedPreferences } from '@/services/feedPreferences';
-import { hasPersonalizationSignals } from '@/services/interestSignals';
 import {
   getNotifiedArticleIds,
-  isWithinColdStartTrendingCooldown,
+  isWithinTrendingNotificationCooldown,
   markArticleNotified,
   markTrendingNotificationSent,
 } from '@/services/trendingNotificationState';
@@ -45,27 +43,23 @@ export async function processHotTrendingNotifications(
   if (!enabled || !notificationsAvailable()) return;
   if (!(await getNotificationPermissionGranted())) return;
 
-  const prefs = preferences ? normalizeFeedPreferences(preferences) : null;
-  if (
-    prefs &&
-    !hasPersonalizationSignals(prefs) &&
-    (await isWithinColdStartTrendingCooldown(userId))
-  ) {
-    return;
-  }
+  if (await isWithinTrendingNotificationCooldown(userId)) return;
 
   const notified = await getNotifiedArticleIds(userId);
   const candidates = findHotTrendingCandidates(articles);
   const next = candidates.find((c) => {
     if (notified.has(c.article.id)) return false;
-    if (preferences && !isTrendingNotificationRelevant(c.article, preferences)) return false;
+    if (
+      preferences &&
+      !isTrendingNotificationRelevant(c.article, preferences, Date.now(), c.burstCount)
+    ) {
+      return false;
+    }
     return true;
   });
   if (!next) return;
 
   await presentHotTrendingNotification(next.article);
   await markArticleNotified(userId, next.article.id);
-  if (prefs && !hasPersonalizationSignals(prefs)) {
-    await markTrendingNotificationSent(userId);
-  }
+  await markTrendingNotificationSent(userId);
 }

@@ -25,6 +25,15 @@ function sourceBurstCounts(articles: Article[], nowMs: number): Map<string, numb
   return counts;
 }
 
+/**
+ * Spread bucket for feed diversification. Uses outlet name, with a sport facet when
+ * present so mixed ESPN NFL + soccer batches interleave instead of clustering.
+ */
+export function articleSpreadBucket(article: Article): string {
+  const sport = article.sportTags?.[0];
+  return sport ? `${article.source}::${sport}` : article.source;
+}
+
 type QueueOrderOptions = {
   burstCounts?: Map<string, number>;
 };
@@ -36,6 +45,34 @@ export function articlePrimaryTopic(article: Article): Topic {
 
 function compareTopicQueues(a: Article[], b: Article[]): number {
   return compareNewestFirst(a[0]!, b[0]!);
+}
+
+function trailingSpreadBucket(articles: Article[]): string | null {
+  return articles.length > 0 ? articleSpreadBucket(articles[articles.length - 1]!) : null;
+}
+
+function trailingPrimaryTopic(articles: Article[]): Topic | null {
+  return articles.length > 0 ? articlePrimaryTopic(articles[articles.length - 1]!) : null;
+}
+
+function drainQueuesGreedy(
+  queues: Article[][],
+  canFollow: (result: Article[], candidate: Article) => boolean,
+): Article[] {
+  const mutable = queues.map((queue) => [...queue]);
+  const result: Article[] = [];
+
+  while (mutable.some((queue) => queue.length > 0)) {
+    let pickedQueue = mutable.findIndex(
+      (queue) => queue.length > 0 && canFollow(result, queue[0]!),
+    );
+    if (pickedQueue < 0) {
+      pickedQueue = mutable.findIndex((queue) => queue.length > 0);
+    }
+    result.push(mutable[pickedQueue]!.shift()!);
+  }
+
+  return result;
 }
 
 /**
@@ -57,27 +94,16 @@ export function interleaveByPrimaryTopic(
     else byTopic.set(topic, [article]);
   }
 
-  const queues = [...byTopic.values()].map((items) => {
-    if (options?.preserveInputOrder) return items;
-    return [...items].sort(compareNewestFirst);
-  });
+  const queues = [...byTopic.values()].map((items) =>
+    interleaveBySource(items, { preserveInputOrder: options?.preserveInputOrder }),
+  );
 
   queues.sort(compareTopicQueues);
 
-  const interleaved: Article[] = [];
-  let added = true;
-  while (added) {
-    added = false;
-    for (const queue of queues) {
-      const next = queue.shift();
-      if (next) {
-        interleaved.push(next);
-        added = true;
-      }
-    }
-  }
-
-  return interleaved;
+  return drainQueuesGreedy(queues, (result, candidate) => {
+    const lastTopic = trailingPrimaryTopic(result);
+    return lastTopic == null || articlePrimaryTopic(candidate) !== lastTopic;
+  });
 }
 
 function compareSourceQueues(
@@ -94,8 +120,8 @@ function compareSourceQueues(
 }
 
 /**
- * Round-robin across outlets. Each outlet queue is consumed in order (newest-first
- * by default, or the order articles were passed in).
+ * Spread across outlets (and sport facets when present). Each outlet queue is
+ * consumed in order (newest-first by default, or the order articles were passed in).
  */
 export function interleaveBySource(
   articles: Article[],
@@ -112,9 +138,10 @@ export function interleaveBySource(
   const bySource = new Map<string, Article[]>();
 
   for (const article of articles) {
-    const bucket = bySource.get(article.source);
+    const key = articleSpreadBucket(article);
+    const bucket = bySource.get(key);
     if (bucket) bucket.push(article);
-    else bySource.set(article.source, [article]);
+    else bySource.set(key, [article]);
   }
 
   const queues = [...bySource.values()].map((items) => {
@@ -124,20 +151,10 @@ export function interleaveBySource(
 
   queues.sort((a, b) => compareSourceQueues(a, b, options?.queueOrder ?? {}));
 
-  const interleaved: Article[] = [];
-  let added = true;
-  while (added) {
-    added = false;
-    for (const queue of queues) {
-      const next = queue.shift();
-      if (next) {
-        interleaved.push(next);
-        added = true;
-      }
-    }
-  }
-
-  return interleaved;
+  return drainQueuesGreedy(queues, (result, candidate) => {
+    const lastBucket = trailingSpreadBucket(result);
+    return lastBucket == null || articleSpreadBucket(candidate) !== lastBucket;
+  });
 }
 
 function partitionTrending(articles: Article[], nowMs: number): [Article[], Article[]] {
@@ -180,6 +197,30 @@ export function orderLatestFeed(articles: Article[], options?: OrderLatestFeedOp
   const orderedTrending = interleaveBySource(trending, { queueOrder });
   const orderedRest = interleaveBySource(rest, { queueOrder });
   return [...orderedTrending, ...orderedRest];
+}
+
+/** Spread a batch so outlets (and sport facets when present) rarely appear back-to-back. */
+export function spreadArticlesBySource(articles: Article[]): Article[] {
+  return interleaveBySource(articles);
+}
+
+/**
+ * Interleave newcomers with the top of an existing feed so a same-outlet batch does
+ * not sit flush against the current head. Tail order is unchanged.
+ */
+export function spreadAgainstFeedHead(
+  newcomers: Article[],
+  prev: Article[],
+  options?: { collisionZone?: number },
+): Article[] {
+  if (newcomers.length === 0) return prev;
+  if (prev.length === 0) return newcomers;
+
+  const zone = Math.min(options?.collisionZone ?? 24, prev.length);
+  const head = prev.slice(0, zone);
+  const tail = prev.slice(zone);
+  const interleaved = interleaveBySource([...newcomers, ...head]);
+  return [...interleaved, ...tail];
 }
 
 /**

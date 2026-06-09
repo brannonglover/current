@@ -1,4 +1,5 @@
 import { Article } from '@/types';
+import { spreadAgainstFeedHead } from '@/utils/feedOrdering';
 
 function maxSourceIndex(prev: Article[], indexById: Map<string, number>): number {
   let max = -1;
@@ -39,5 +40,5 @@ export function mergePaginatedDisplayFeed(
     return [...prev, ...orderedNew];
   }
 
-  return [...orderedNew, ...prev];
+  return spreadAgainstFeedHead(orderedNew, prev);
 }

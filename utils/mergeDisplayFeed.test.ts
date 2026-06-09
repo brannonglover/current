@@ -2,15 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { Article } from '@/types';
+import { articleSpreadBucket } from '@/utils/feedOrdering';
 import { mergePaginatedDisplayFeed } from '@/utils/mergeDisplayFeed';
 
-function article(id: string): Article {
+function article(id: string, source = 'Source'): Article {
   return {
     id,
     title: id,
     excerpt: 'excerpt',
     body: 'body',
-    source: 'Source',
+    source,
     imageUrl: '',
     topics: ['world'],
     readTimeMinutes: 3,
@@ -43,4 +44,22 @@ test('mergePaginatedDisplayFeed prepends when new items are earlier in the sourc
     merged.map((item) => item.id),
     ['n1', 'n2', 'a', 'b'],
   );
+});
+
+test('mergePaginatedDisplayFeed spreads prepended batches against the feed head', () => {
+  const source = [
+    article('n1', 'ESPN NFL'),
+    article('n2', 'ESPN NFL'),
+    article('n3', 'ESPN NFL'),
+    article('a', 'BBC News'),
+    article('b', 'CNN'),
+  ];
+  const prev = [article('a', 'BBC News'), article('b', 'CNN')];
+  const newOnly = [article('n1', 'ESPN NFL'), article('n2', 'ESPN NFL'), article('n3', 'ESPN NFL')];
+
+  const merged = mergePaginatedDisplayFeed(prev, newOnly, source, (items) => items);
+
+  assert.notEqual(articleSpreadBucket(merged[0]!), articleSpreadBucket(merged[1]!));
+  assert.ok(merged.some((item) => item.id === 'n1'));
+  assert.ok(merged.some((item) => item.id === 'a'));
 });

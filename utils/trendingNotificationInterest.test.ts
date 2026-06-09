@@ -48,6 +48,33 @@ test('isTrendingNotificationRelevant requires affinity when user has like signal
   assert.equal(isTrendingNotificationRelevant(article(['politics']), prefs), false);
 });
 
+test('isTrendingNotificationRelevant requires breaking for all-topics feed with like signals', () => {
+  const prefs = basePrefs({
+    topicScores: { ...basePrefs().topicScores, technology: 2 },
+  });
+  const pressingOnly = {
+    ...article(['technology']),
+    publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  };
+
+  assert.equal(isTrendingNotificationRelevant(pressingOnly, prefs, Date.now(), 3), false);
+  assert.equal(isTrendingNotificationRelevant(article(['technology']), prefs, Date.now(), 3), true);
+});
+
+test('isTrendingNotificationRelevant allows pressing story with like signals and narrowed topics', () => {
+  const prefs = basePrefs({
+    enabledTopics: ['science'],
+    topicScores: { ...basePrefs().topicScores, science: 2 },
+  });
+  const pressing = {
+    ...article(['science']),
+    publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  };
+
+  assert.equal(isTrendingNotificationRelevant(pressing, prefs, Date.now(), 2), true);
+  assert.equal(isTrendingNotificationRelevant(pressing, prefs, Date.now(), 1), false);
+});
+
 test('isTrendingNotificationRelevant allows breaking story in narrowed topics without likes', () => {
   const prefs = basePrefs({ enabledTopics: ['science'] });
   assert.equal(isTrendingNotificationRelevant(article(['science']), prefs), true);

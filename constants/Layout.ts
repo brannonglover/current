@@ -10,6 +10,9 @@ export const TAB_BAR_PADDING_TOP = 8;
 /** Peek fraction of feed viewport to reveal the next card edge */
 export const FEED_SCROLL_PEEK_RATIO = 0.03;
 
+/** Feed article separator thickness (1 logical px; see ArticleFeed FeedArticleSeparator). */
+export const FEED_SEPARATOR_WIDTH = 1;
+
 /** Newspaper trial: hero card height as a fraction of the feed viewport */
 export const NEWSPAPER_HERO_HEIGHT_RATIO = 0.58;
 
@@ -42,3 +45,6 @@ export const ARTICLE_CARD_HERO_VIGNETTE_GRADIENT_LOCATIONS = [0, 0.65, 0.85, 1] 
 export function tabBarModalBottomOffset(tabBarHeight: number, safeAreaBottom: number): number {
   return Math.max(0, tabBarHeight - safeAreaBottom);
 }
+
+/** World Cup group standings card in the bracket section (two columns on phone). */
+export const WORLD_CUP_GROUP_CARD_MIN_HEIGHT = 168;

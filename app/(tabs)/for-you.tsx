@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { ArticleFeedScreen } from '@/components/ArticleFeedScreen';
 import { FeedTopicFilterBar } from '@/components/FeedTopicFilterBar';
@@ -37,7 +37,7 @@ export default function ForYouScreen() {
   const prevFeedGenerationRef = useRef(0);
   const prevRawLengthRef = useRef(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!userHasLikedArticles || !preferences) {
       setDisplayArticles([]);
       prevRawLengthRef.current = 0;

@@ -8,34 +8,40 @@ import {
 import { filterArticlesBySportTags } from '@/services/sportPreferences';
 import { filterArticlesByTopics, isAllTopicsEnabled } from '@/services/topicPreferences';
 import { Article, FeedSource, UserPreferences } from '@/types';
+import { applyArticleStoryFallbacks } from '@/utils/articleStoryFallback';
 import { hasRealHeroImage } from '@/utils/articleStoryMatch';
+import { limitSportsInAllTopicsFeed } from '@/utils/limitAllTopicsSports';
 
-/** Drop feed rows without a real hero image (after story fallbacks at fetch). */
+/** Drop feed rows without a real hero image (after story dedupe at fetch). */
 export function filterArticlesWithRealHeroImage(articles: Article[]): Article[] {
   return articles.filter(hasRealHeroImage);
 }
 
 /**
  * Client-side feed filter pipeline.
- * All topics (`enabledTopics: []`) bypasses topic, sport, and source filters so the
- * feed is not stuck on sports-only outlets from a prior category or Profile selection.
+ * Source toggles always apply. All topics (`enabledTopics: []`) bypasses topic and
+ * sport filters so the feed is not stuck on sports-only outlets from a prior category
+ * or Profile selection.
  */
 export function applyFeedFilters(
   articles: Article[],
   preferences: UserPreferences | null | undefined,
   sources: FeedSource[],
 ): Article[] {
-  let result = articles;
+  let result = applyArticleStoryFallbacks(articles);
 
   if (preferences) {
     const prefs = normalizeFeedPreferences(preferences);
     const catalogSources = sources.length > 0 ? sources : FALLBACK_SOURCES;
 
+    result = filterArticlesBySources(result, catalogSources, prefs.enabledSourceIds);
+
     if (!isAllTopicsEnabled(prefs.enabledTopics)) {
-      result = filterArticlesBySources(result, catalogSources, prefs.enabledSourceIds);
       const sourcePrimaryByName = buildSourcePrimaryTopicMap(catalogSources);
       result = filterArticlesByTopics(result, prefs.enabledTopics, sourcePrimaryByName);
       result = filterArticlesBySportTags(result, prefs.enabledSportTags, prefs.enabledTopics);
+    } else {
+      result = limitSportsInAllTopicsFeed(result);
     }
 
     result = filterArticlesByBlocks(result, prefs);

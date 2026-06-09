@@ -9,6 +9,7 @@ import {
   notificationsAvailable,
   subscribeToNotificationResponses,
 } from '@/services/notificationSetup';
+import { cancelWorldCupMatchNotifications } from '@/services/worldCupNotificationScheduler';
 
 function articleIdFromNotification(
   notification: { request: { content: { data?: unknown } } } | undefined,
@@ -17,6 +18,14 @@ function articleIdFromNotification(
   if (!data || typeof data !== 'object') return undefined;
   const articleId = (data as { articleId?: unknown }).articleId;
   return typeof articleId === 'string' ? articleId : undefined;
+}
+
+function worldCupScreenFromNotification(
+  notification: { request: { content: { data?: unknown } } } | undefined,
+): boolean {
+  const data = notification?.request.content.data;
+  if (!data || typeof data !== 'object') return false;
+  return (data as { screen?: unknown }).screen === 'world-cup';
 }
 
 function responseKey(notification: { date: number; request: { identifier: string } }): string {
@@ -40,6 +49,7 @@ export function useNotificationNavigation() {
     void (async () => {
       try {
         await initNotifications();
+        await cancelWorldCupMatchNotifications();
 
         function openArticleFromNotification(
           notification: { request: { content: { data?: unknown } } } | undefined,
@@ -48,12 +58,21 @@ export function useNotificationNavigation() {
           if (articleId) routerRef.current.push(`/article/${articleId}`);
         }
 
+        function openWorldCupFromNotification(
+          notification: { request: { content: { data?: unknown } } } | undefined,
+        ) {
+          if (worldCupScreenFromNotification(notification)) {
+            routerRef.current.push('/(tabs)/world-cup');
+          }
+        }
+
         function handleNotificationResponse(response: {
           notification: { date: number; request: { identifier: string; content: { data?: unknown } } };
         }) {
           const key = responseKey(response.notification);
           if (handledResponseKeys.has(key)) return;
           handledResponseKeys.add(key);
+          openWorldCupFromNotification(response.notification);
           openArticleFromNotification(response.notification);
         }
 

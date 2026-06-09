@@ -27,6 +27,26 @@ function basePrefs(overrides: Partial<UserPreferences> = {}): UserPreferences {
   };
 }
 
+const now = Date.now();
+const recent = (offsetMs: number) => new Date(now - offsetMs).toISOString();
+
+function hotSportArticle(overrides: Partial<Article> = {}): Article {
+  return {
+    id: 'sport',
+    title: 'Premier League match report',
+    excerpt: 'excerpt',
+    body: 'body',
+    source: 'BBC Sport',
+    imageUrl: 'https://example.com/2.jpg',
+    topics: ['sports'],
+    sportTags: ['premier-league'],
+    readTimeMinutes: 4,
+    publishedAt: recent(20 * 60 * 1000),
+    url: 'https://example.com/sport',
+    ...overrides,
+  };
+}
+
 const articles: Article[] = [
   {
     id: 'tech',
@@ -37,22 +57,10 @@ const articles: Article[] = [
     imageUrl: 'https://example.com/1.jpg',
     topics: ['technology'],
     readTimeMinutes: 5,
-    publishedAt: '2026-06-01T12:00:00Z',
+    publishedAt: recent(90 * 60 * 1000),
     url: 'https://example.com/tech',
   },
-  {
-    id: 'sport',
-    title: 'Match report',
-    excerpt: 'excerpt',
-    body: 'body',
-    source: 'BBC Sport',
-    imageUrl: 'https://example.com/2.jpg',
-    topics: ['sports'],
-    sportTags: ['premier-league'],
-    readTimeMinutes: 4,
-    publishedAt: '2026-06-01T11:00:00Z',
-    url: 'https://example.com/sport',
-  },
+  hotSportArticle(),
   {
     id: 'world',
     title: 'World story',
@@ -62,7 +70,7 @@ const articles: Article[] = [
     imageUrl: 'https://example.com/3.jpg',
     topics: ['world'],
     readTimeMinutes: 6,
-    publishedAt: '2026-06-01T10:00:00Z',
+    publishedAt: recent(120 * 60 * 1000),
     url: 'https://example.com/world',
   },
 ];
@@ -77,7 +85,7 @@ test('All topics (empty enabledTopics) returns every source/topic', () => {
   );
 });
 
-test('All topics bypasses sports-only enabledSourceIds', () => {
+test('All topics still respects sports-only enabledSourceIds', () => {
   const sportsOnlyIds = FALLBACK_SOURCES.filter((s) => s.primaryTopic === 'sports').map((s) => s.id);
   assert.ok(sportsOnlyIds.length > 0, 'fixture needs sports sources');
 
@@ -86,11 +94,7 @@ test('All topics bypasses sports-only enabledSourceIds', () => {
     enabledSourceIds: sportsOnlyIds,
   });
   const result = applyFeedFilters(articles, prefs, FALLBACK_SOURCES);
-  assert.equal(result.length, 3);
-  assert.deepEqual(
-    result.map((a) => a.id).sort(),
-    ['sport', 'tech', 'world'],
-  );
+  assert.deepEqual(result.map((a) => a.id), ['sport']);
 });
 
 test('Sports-only enabledSourceIds still applies when a topic chip is selected', () => {
@@ -131,7 +135,7 @@ test('World topic excludes sports-primary outlets', () => {
   assert.deepEqual(result.map((a) => a.id), ['world']);
 });
 
-test('All topics returns pre-fetched articles unchanged (no source filter pass)', () => {
+test('All topics keeps enabled outlets regardless of article topic', () => {
   const sportsSources = FALLBACK_SOURCES.filter((s) => s.primaryTopic === 'sports');
   const enabledIds = sportsSources.slice(0, 2).map((s) => s.id);
   const prefs = basePrefs({ enabledTopics: [], enabledSourceIds: enabledIds });
@@ -153,6 +157,18 @@ test('All topics returns pre-fetched articles unchanged (no source filter pass)'
 
   const result = applyFeedFilters(sportsOnlyArticles, prefs, FALLBACK_SOURCES);
   assert.deepEqual(result.map((a) => a.id).sort(), ['sport-a', 'tech-on-sports-outlet']);
+});
+
+test('All topics still respects disabled sources', () => {
+  const wired = FALLBACK_SOURCES.find((s) => s.name === 'Wired');
+  assert.ok(wired, 'fixture needs Wired source');
+
+  const enabledIds = FALLBACK_SOURCES.map((s) => s.id).filter((id) => id !== wired!.id);
+  const prefs = basePrefs({ enabledTopics: [], enabledSourceIds: enabledIds });
+
+  const result = applyFeedFilters(articles, prefs, FALLBACK_SOURCES);
+  assert.deepEqual(result.map((a) => a.id).sort(), ['sport', 'world']);
+  assert.ok(!result.some((a) => a.source === 'Wired'));
 });
 
 test('All topics with every source enabled returns mixed topics from fixture', () => {
@@ -179,6 +195,62 @@ test('applyFeedFilters removes articles with blocked topics even when all topics
   const prefs = basePrefs({ enabledTopics: [], blockedTopics: ['technology'] });
   const result = applyFeedFilters(articles, prefs, FALLBACK_SOURCES);
   assert.ok(!result.some((a) => a.id === 'tech'));
+});
+
+test('All topics drops stale sports but keeps hot trending sports', () => {
+  const staleSport = hotSportArticle({
+    id: 'stale-sport',
+    publishedAt: new Date(now - 8 * 60 * 60 * 1000).toISOString(),
+  });
+  const result = applyFeedFilters([...articles, staleSport], basePrefs(), FALLBACK_SOURCES);
+  assert.ok(result.some((a) => a.id === 'sport'));
+  assert.ok(!result.some((a) => a.id === 'stale-sport'));
+});
+
+test('All topics limits a flood of hot NFL and soccer stories', () => {
+  const nflFlood = Array.from({ length: 6 }, (_, index) =>
+    hotSportArticle({
+      id: `nfl-${index}`,
+      source: 'ESPN',
+      sportTags: ['football'],
+      title: `NFL headline ${index}`,
+      publishedAt: recent((index + 1) * 60 * 1000),
+    }),
+  );
+  const soccerFlood = Array.from({ length: 6 }, (_, index) =>
+    hotSportArticle({
+      id: `soccer-${index}`,
+      source: 'BBC Sport',
+      sportTags: ['premier-league'],
+      title: `Premier League headline ${index}`,
+      publishedAt: recent((index + 10) * 60 * 1000),
+    }),
+  );
+
+  const result = applyFeedFilters(
+    [...articles.filter((a) => a.id !== 'sport'), ...nflFlood, ...soccerFlood],
+    basePrefs(),
+    FALLBACK_SOURCES,
+  );
+  const sportsKept = result.filter((a) => a.topics.includes('sports'));
+  assert.ok(sportsKept.length <= 4);
+  assert.ok(result.some((a) => a.id === 'tech'));
+  assert.ok(result.some((a) => a.id === 'world'));
+});
+
+test('Sports topic filter still returns every matching sports story', () => {
+  const nflFlood = Array.from({ length: 6 }, (_, index) =>
+    hotSportArticle({
+      id: `nfl-${index}`,
+      source: 'ESPN',
+      sportTags: ['football'],
+      title: `NFL headline ${index}`,
+      publishedAt: recent((index + 1) * 60 * 1000),
+    }),
+  );
+
+  const result = applyFeedFilters(nflFlood, basePrefs({ enabledTopics: ['sports'] }), FALLBACK_SOURCES);
+  assert.equal(result.length, 6);
 });
 
 test('applyFeedFilters removes articles without a real hero image', () => {

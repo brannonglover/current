@@ -2,6 +2,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Platform } from 'react-native';
 
 export const TRENDING_CHANNEL_ID = 'trending';
+export const WORLD_CUP_CHANNEL_ID = 'world-cup';
 
 export type TrendingNotificationPermissionResult = 'granted' | 'denied' | 'unavailable';
 
@@ -80,6 +81,25 @@ export async function ensureTrendingNotificationChannel(): Promise<void> {
   }
 }
 
+export async function ensureWorldCupNotificationChannel(): Promise<void> {
+  if (!notificationsAvailable() || Platform.OS !== 'android') return;
+
+  try {
+    const [{ default: setNotificationChannelAsync }, { AndroidImportance }] = await Promise.all([
+      import('expo-notifications/build/setNotificationChannelAsync'),
+      import('expo-notifications/build/NotificationChannelManager.types'),
+    ]);
+
+    await setNotificationChannelAsync(WORLD_CUP_CHANNEL_ID, {
+      name: 'World Cup matches',
+      importance: AndroidImportance.DEFAULT,
+      vibrationPattern: [0, 200, 120, 200],
+    });
+  } catch {
+    markUnavailable();
+  }
+}
+
 export async function getNotificationPermissionGranted(): Promise<boolean> {
   if (!notificationsAvailable()) return false;
 
@@ -127,6 +147,57 @@ export async function scheduleLocalNotification(content: NotificationContent): P
     await scheduleNotificationAsync({ content, trigger: null });
   } catch {
     markUnavailable();
+  }
+}
+
+export async function scheduleNotificationAt(
+  identifier: string,
+  content: NotificationContent,
+  date: Date,
+): Promise<void> {
+  if (!notificationsAvailable()) return;
+
+  try {
+    const [{ default: scheduleNotificationAsync }, { SchedulableTriggerInputTypes }] =
+      await Promise.all([
+        import('expo-notifications/build/scheduleNotificationAsync'),
+        import('expo-notifications/build/Notifications.types'),
+      ]);
+    await scheduleNotificationAsync({
+      identifier,
+      content,
+      trigger: { type: SchedulableTriggerInputTypes.DATE, date },
+    });
+  } catch {
+    markUnavailable();
+  }
+}
+
+export async function cancelScheduledNotification(identifier: string): Promise<void> {
+  if (!notificationsAvailable()) return;
+
+  try {
+    const { default: cancelScheduledNotificationAsync } = await import(
+      'expo-notifications/build/cancelScheduledNotificationAsync'
+    );
+    await cancelScheduledNotificationAsync(identifier);
+  } catch {
+    markUnavailable();
+  }
+}
+
+export async function getScheduledNotificationIdentifiers(): Promise<string[]> {
+  if (!notificationsAvailable()) return [];
+
+  try {
+    const { default: getAllScheduledNotificationsAsync } = await import(
+      'expo-notifications/build/getAllScheduledNotificationsAsync'
+    );
+    const scheduled = await getAllScheduledNotificationsAsync();
+    return scheduled.map((request) => request.identifier);
+  } catch {
+    markUnavailable();
+    return [];
   }
 }
 

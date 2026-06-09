@@ -168,21 +168,12 @@ function NewspaperOverlayCard({
             pointerEvents="none"
           />
         ) : null}
-        <View
-          style={[
-            styles.newspaperOverlay,
-            isHero
-              ? styles.newspaperOverlayHero
-              : isFeatured
-                ? styles.newspaperOverlayFeatured
-                : styles.newspaperOverlayCompact,
-          ]}
-          pointerEvents="box-none">
+        <View style={styles.newspaperOverlay} pointerEvents="box-none">
           <Pressable
             onPress={openArticle}
             accessibilityRole="button"
             accessibilityLabel={`Read ${article.title}`}
-            style={({ pressed }) => [pressed && styles.pressed]}>
+            style={({ pressed }) => [styles.newspaperTextPanelPressable, pressed && styles.pressed]}>
             <LinearGradient
               colors={[...textPanelGradient.colors]}
               locations={[...textPanelGradient.locations]}
@@ -468,25 +459,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 20,
   },
-  newspaperOverlayHero: {
-    paddingBottom: 16,
-  },
-  newspaperOverlayCompact: {
-    paddingBottom: 12,
-    paddingHorizontal: 12,
-  },
-  newspaperOverlayFeatured: {
-    paddingBottom: 14,
-    paddingHorizontal: 20,
+  newspaperTextPanelPressable: {
+    width: '100%',
   },
   newspaperTextPanel: {
-    borderRadius: 10,
-    overflow: 'hidden',
+    width: '100%',
     paddingHorizontal: 14,
-    paddingBottom: 14,
     paddingTop: 18,
+    paddingBottom: 14,
   },
   newspaperTextPanelHero: {
     paddingTop: 22,
@@ -497,7 +478,6 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   newspaperTextPanelCompact: {
-    borderRadius: 8,
     paddingHorizontal: 12,
     paddingTop: 16,
     paddingBottom: 12,

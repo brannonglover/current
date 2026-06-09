@@ -1,7 +1,7 @@
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { ParamListBase } from '@react-navigation/native';
 import { useFocusEffect, useNavigation } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArticleFeedHandle } from '@/components/ArticleFeed';
 import { ArticleFeedScreen } from '@/components/ArticleFeedScreen';
 import { BrandLogo } from '@/components/BrandLogo';
@@ -63,7 +63,7 @@ export default function LatestScreen() {
     }, [navigation, refresh]),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const filteredArticles = filterFeedArticles(articles);
     const allTopics =
       !preferences ||

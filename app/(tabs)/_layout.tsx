@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 
 import Colors from '@/constants/Colors';
 import { TAB_BAR_HEIGHT, TAB_BAR_PADDING_BOTTOM, TAB_BAR_PADDING_TOP } from '@/constants/Layout';
+import { WORLD_CUP_TAB_ENABLED } from '@/constants/worldCup';
 export default function TabLayout() {
   const colors = Colors.dark;
 
@@ -31,6 +32,17 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <Ionicons name="newspaper-outline" size={24} color={color} />,
         }}
       />
+      {WORLD_CUP_TAB_ENABLED ? (
+        <Tabs.Screen
+          name="world-cup"
+          options={{
+            title: 'World Cup',
+            tabBarIcon: ({ color }) => <Ionicons name="trophy-outline" size={24} color={color} />,
+          }}
+        />
+      ) : (
+        <Tabs.Screen name="world-cup" options={{ href: null }} />
+      )}
       <Tabs.Screen
         name="for-you"
         options={{

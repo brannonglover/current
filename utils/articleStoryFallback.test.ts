@@ -5,9 +5,11 @@ import { Article } from '@/types';
 import { applyArticleStoryFallbacks } from '@/utils/articleStoryFallback';
 import {
   articleStoryKey,
+  articlesAreSameStory,
   hasRealHeroImage,
   normalizeStoryTitle,
   pickBestHeroImageAlternate,
+  storyTitlesMatch,
 } from '@/utils/articleStoryMatch';
 
 function article(overrides: Partial<Article> & Pick<Article, 'id' | 'title' | 'source'>): Article {
@@ -61,6 +63,47 @@ test('hasRealHeroImage treats empty and legacy placeholders as missing', () => {
   assert.equal(hasRealHeroImage(real), true);
 });
 
+test('storyTitlesMatch links related headlines about the same event', () => {
+  assert.equal(
+    storyTitlesMatch(
+      'World Cup ref from Somalia denied entry to U.S.',
+      "Wright on ref denied entry: 'World Cup of chaos'",
+    ),
+    true,
+  );
+});
+
+test('storyTitlesMatch rejects unrelated headlines on the same day', () => {
+  assert.equal(
+    storyTitlesMatch('Lakers win in overtime thriller', 'Lakers trade deadline rumors swirl'),
+    false,
+  );
+});
+
+test('articlesAreSameStory requires the same UTC calendar day', () => {
+  const early = article({
+    id: 'a',
+    title: 'World Cup ref from Somalia denied entry to U.S.',
+    source: 'ESPN',
+    publishedAt: '2026-06-09T10:00:00.000Z',
+  });
+  const sameDay = article({
+    id: 'b',
+    title: "Wright on ref denied entry: 'World Cup of chaos'",
+    source: 'ESPN',
+    publishedAt: '2026-06-09T18:00:00.000Z',
+  });
+  const nextDay = article({
+    id: 'c',
+    title: "Wright on ref denied entry: 'World Cup of chaos'",
+    source: 'ESPN',
+    publishedAt: '2026-06-10T18:00:00.000Z',
+  });
+
+  assert.equal(articlesAreSameStory(early, sameDay), true);
+  assert.equal(articlesAreSameStory(early, nextDay), false);
+});
+
 test('applyArticleStoryFallbacks swaps imageless story for sibling with hero image', () => {
   const imageless = article({
     id: 'guardian',
@@ -85,25 +128,50 @@ test('applyArticleStoryFallbacks swaps imageless story for sibling with hero ima
   assert.equal(result[0]!.url, withImage.url);
 });
 
-test('applyArticleStoryFallbacks keeps both when each has a hero image', () => {
-  const a = article({
-    id: 'a',
-    title: 'Policy Shift Announced',
-    source: 'NPR',
-    imageUrl: 'https://cdn.example.com/a.jpg',
-  });
-  const b = article({
-    id: 'b',
+test('applyArticleStoryFallbacks keeps one copy when each has a hero image', () => {
+  const cnn = article({
+    id: 'cnn',
     title: 'Policy Shift Announced',
     source: 'CNN',
-    imageUrl: 'https://cdn.example.com/b.jpg',
+    imageUrl: 'https://cdn.example.com/cnn.jpg',
+  });
+  const bbc = article({
+    id: 'bbc',
+    title: 'Policy Shift Announced',
+    source: 'BBC News',
+    imageUrl: 'https://cdn.bbc.co.uk/policy.jpg',
   });
 
-  const result = applyArticleStoryFallbacks([a, b]);
+  const result = applyArticleStoryFallbacks([cnn, bbc]);
   assert.deepEqual(
     result.map((item) => item.id),
-    ['a', 'b'],
+    ['bbc'],
   );
+});
+
+test('applyArticleStoryFallbacks dedupes fuzzy same-story headlines and prefers hero image', () => {
+  const imageless = article({
+    id: 'espn-headline',
+    title: 'World Cup ref from Somalia denied entry to U.S.',
+    source: 'ESPN UK Football',
+    imageUrl: '',
+    publishedAt: '2026-06-09T12:00:00.000Z',
+  });
+  const withPhoto = article({
+    id: 'espn-commentary',
+    title: "Wright on ref denied entry: 'World Cup of chaos'",
+    source: 'ESPN UK Football',
+    imageUrl: 'https://a.espncdn.com/photo/2026/0609/referee.jpg',
+    publishedAt: '2026-06-09T13:00:00.000Z',
+  });
+
+  const result = applyArticleStoryFallbacks([imageless, withPhoto]);
+
+  assert.deepEqual(
+    result.map((item) => item.id),
+    ['espn-commentary'],
+  );
+  assert.equal(result[0]!.imageUrl, withPhoto.imageUrl);
 });
 
 test('pickBestHeroImageAlternate prefers catalog-ranked source', () => {
@@ -171,6 +239,6 @@ test('applyArticleStoryFallbacks uses best alternate when only one imageless cop
 
   assert.deepEqual(
     result.map((item) => item.id),
-    ['bbc', 'cnn'],
+    ['bbc'],
   );
 });

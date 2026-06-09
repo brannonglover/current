@@ -1,5 +1,5 @@
 import { Article } from '@/types';
-import { interleaveBySource } from '@/utils/feedOrdering';
+import { spreadArticlesBySource, spreadAgainstFeedHead } from '@/utils/feedOrdering';
 
 /** Articles in `incoming` that are not already in `prev`. */
 export function newcomersFromFeedMerge(prev: Article[], incoming: Article[]): Article[] {
@@ -36,9 +36,9 @@ export function mergeArticleFeed(prev: Article[], incoming: Article[]): Article[
     seen.add(item.id);
   }
 
-  const newcomers = interleaveBySource(incoming.filter((a) => !seen.has(a.id)));
+  const newcomers = spreadArticlesBySource(incoming.filter((a) => !seen.has(a.id)));
 
-  return newcomers.length > 0 ? [...newcomers, ...merged] : merged;
+  return newcomers.length > 0 ? spreadAgainstFeedHead(newcomers, merged) : merged;
 }
 
 export function articleFeedOrderUnchanged(prev: Article[], next: Article[]): boolean {

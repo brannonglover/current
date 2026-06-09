@@ -31,6 +31,7 @@ import { FeedHeader } from '@/components/FeedHeader';
 import { FeedPendingBanner } from '@/components/FeedPendingBanner';
 import {
   FEED_SCROLL_PEEK_RATIO,
+  FEED_SEPARATOR_WIDTH,
   NEWSPAPER_COMPACT_CARD_HEIGHT,
   NEWSPAPER_FEATURED_CARD_HEIGHT,
   NEWSPAPER_HERO_HEIGHT_RATIO,
@@ -44,6 +45,21 @@ import {
 } from '@/utils/newspaperFeedRows';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<Article>);
+
+/** 1px rule between feed articles — explicit View so it stays visible on full-bleed cards. */
+function FeedArticleSeparator({ color, vertical = false }: { color: string; vertical?: boolean }) {
+  const thickness = PixelRatio.roundToNearestPixel(FEED_SEPARATOR_WIDTH);
+  return (
+    <View
+      style={[
+        vertical ? styles.feedSeparatorVertical : styles.feedSeparatorHorizontal,
+        vertical ? { width: thickness } : { height: thickness },
+        { backgroundColor: color },
+      ]}
+      pointerEvents="none"
+    />
+  );
+}
 
 export type ArticleFeedLayout = 'snap' | 'newspaper';
 
@@ -107,15 +123,18 @@ function FeedCardItem({
   article,
   height,
   isLast,
+  showTopSeparator,
   endPullDistance,
   allowPress,
 }: {
   article: Article;
   height: number;
   isLast: boolean;
+  showTopSeparator: boolean;
   endPullDistance: SharedValue<number>;
   allowPress: () => boolean;
 }) {
+  const { colors } = useTheme();
   const stretchStyle = useAnimatedStyle(() => {
     if (!isLast) return {};
     const pull = Math.min(endPullDistance.value, 100);
@@ -125,9 +144,12 @@ function FeedCardItem({
   }, [isLast]);
 
   return (
-    <Animated.View style={stretchStyle}>
-      <ArticleCard article={article} height={height} allowPress={allowPress} />
-    </Animated.View>
+    <>
+      {showTopSeparator ? <FeedArticleSeparator color={colors.feedDivider} /> : null}
+      <Animated.View style={stretchStyle}>
+        <ArticleCard article={article} height={height} allowPress={allowPress} />
+      </Animated.View>
+    </>
   );
 }
 
@@ -439,7 +461,8 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
               renderItem={({ item: row }) => {
                 if (row.type === 'featured') {
                   return (
-                    <View style={[styles.newspaperFeaturedRow, { borderTopColor: colors.border }]}>
+                    <View style={styles.newspaperFeaturedRow}>
+                      <FeedArticleSeparator color={colors.feedDivider} />
                       <ArticleCard
                         article={row.article}
                         height={NEWSPAPER_FEATURED_CARD_HEIGHT}
@@ -451,25 +474,25 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                 }
 
                 return (
-                  <View style={[styles.newspaperGridRow, { borderTopColor: colors.border }]}>
-                    {row.articles.map((article, index) => (
-                      <View
-                        key={article.id}
-                        style={[
-                          styles.newspaperGridCell,
-                          index > 0 && [
-                            styles.newspaperGridCellDivider,
-                            { borderLeftColor: colors.border },
-                          ],
-                        ]}>
-                        <ArticleCard
-                          article={article}
-                          height={NEWSPAPER_COMPACT_CARD_HEIGHT}
-                          variant="compact"
-                          allowPress={allowCardPress}
-                        />
-                      </View>
-                    ))}
+                  <View style={styles.newspaperGridRow}>
+                    <FeedArticleSeparator color={colors.feedDivider} />
+                    <View style={styles.newspaperGridCells}>
+                      {row.articles.map((article, index) => (
+                        <View key={article.id} style={styles.newspaperGridCellGroup}>
+                          {index > 0 ? (
+                            <FeedArticleSeparator color={colors.feedDivider} vertical />
+                          ) : null}
+                          <View style={styles.newspaperGridCell}>
+                            <ArticleCard
+                              article={article}
+                              height={NEWSPAPER_COMPACT_CARD_HEIGHT}
+                              variant="compact"
+                              allowPress={allowCardPress}
+                            />
+                          </View>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 );
               }}
@@ -511,6 +534,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                 article={item}
                 height={snapMetrics.snapHeight}
                 isLast={index === articles.length - 1}
+                showTopSeparator={index > 0}
                 endPullDistance={endPullDistance}
                 allowPress={allowCardPress}
               />
@@ -619,19 +643,37 @@ const styles = StyleSheet.create({
   newspaperListContent: {
     paddingBottom: 16,
   },
+  feedSeparatorHorizontal: {
+    width: '100%',
+    flexShrink: 0,
+    zIndex: 2,
+    elevation: 2,
+  },
+  feedSeparatorVertical: {
+    alignSelf: 'stretch',
+    flexShrink: 0,
+    zIndex: 2,
+    elevation: 2,
+  },
   newspaperFeaturedRow: {
-    borderTopWidth: StyleSheet.hairlineWidth,
+    position: 'relative',
+    zIndex: 0,
   },
   newspaperGridRow: {
+    position: 'relative',
+    zIndex: 0,
+  },
+  newspaperGridCells: {
     flexDirection: 'row',
-    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  newspaperGridCellGroup: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
   },
   newspaperGridCell: {
     flex: 1,
     minWidth: 0,
     overflow: 'hidden',
-  },
-  newspaperGridCellDivider: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
   },
 });

@@ -4,8 +4,8 @@ const PREFIX = '@dailyfold/trending-notified/';
 const LAST_SENT_PREFIX = '@dailyfold/trending-notified-at/';
 const MAX_STORED_IDS = 300;
 
-/** Max trending alerts per hour when the user has no like-based personalization. */
-export const COLD_START_TRENDING_COOLDOWN_MS = 60 * 60 * 1000;
+/** Minimum gap between any two trending alerts (breaking, pressing, or liked picks). */
+export const TRENDING_NOTIFICATION_COOLDOWN_MS = 60 * 60 * 1000;
 
 export async function getNotifiedArticleIds(userId: string): Promise<Set<string>> {
   const raw = await AsyncStorage.getItem(`${PREFIX}${userId}`);
@@ -44,11 +44,11 @@ export async function markTrendingNotificationSent(userId: string, sentAtMs: num
   await AsyncStorage.setItem(`${LAST_SENT_PREFIX}${userId}`, String(sentAtMs));
 }
 
-export async function isWithinColdStartTrendingCooldown(
+export async function isWithinTrendingNotificationCooldown(
   userId: string,
   nowMs: number = Date.now(),
 ): Promise<boolean> {
   const last = await getLastTrendingNotificationSentAt(userId);
   if (last == null) return false;
-  return nowMs - last < COLD_START_TRENDING_COOLDOWN_MS;
+  return nowMs - last < TRENDING_NOTIFICATION_COOLDOWN_MS;
 }
