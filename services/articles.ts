@@ -1,5 +1,5 @@
 import { API_URL } from '@/constants/api';
-import { decodeFeedText } from '@/catalog/decodeHtmlText';
+import { stripAndDecodeHtml } from '@/catalog/decodeHtmlText';
 import { resolveArticleImageUrl } from '@/constants/images';
 import { ARTICLES } from '@/data/articles';
 import { Article } from '@/types';
@@ -95,15 +95,18 @@ function apiUnreachableMessage(): string {
   return `Cannot reach the API at ${API_URL}. Run "npm run api" (see DEV.md), verify with "npm run api:check", and on a physical device set EXPO_PUBLIC_API_URL in .env to your computer's LAN address (e.g. http://192.168.1.94:3001).`;
 }
 
-function withResolvedArticleFields(articles: Article[]): Article[] {
-  const resolved = articles.map((article) => ({
+export function resolveArticleDisplayFields(article: Article): Article {
+  return {
     ...article,
-    title: decodeFeedText(article.title),
-    excerpt: decodeFeedText(article.excerpt),
-    body: decodeFeedText(article.body),
+    title: stripAndDecodeHtml(article.title),
+    excerpt: stripAndDecodeHtml(article.excerpt),
+    body: stripAndDecodeHtml(article.body),
     imageUrl: resolveArticleImageUrl(article.imageUrl),
-  }));
-  return applyArticleStoryFallbacks(resolved);
+  };
+}
+
+function withResolvedArticleFields(articles: Article[]): Article[] {
+  return applyArticleStoryFallbacks(articles.map(resolveArticleDisplayFields));
 }
 
 function buildArticlesSearchParams(options?: FetchArticlesOptions): URLSearchParams {

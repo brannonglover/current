@@ -12,7 +12,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { takeWarmArticleCache } from '@/services/articleCache';
-import { fetchArticles, FetchArticlesResult } from '@/services/articles';
+import { fetchArticles, FetchArticlesResult, resolveArticleDisplayFields } from '@/services/articles';
 import { loadFeedSnapshot, saveFeedSnapshot } from '@/services/feedPersistence';
 import { applyFeedFilters, applyTrendingNotificationFilters } from '@/services/feedFilters';
 import { getEnabledSourceIds, isAllSourcesEnabled } from '@/services/sourcePreferences';
@@ -63,6 +63,13 @@ function scheduleGlobalSilentRefresh(delayMs = BACKGROUND_INGEST_REFETCH_MS) {
   }, delayMs);
 }
 
+function cancelScheduledSilentRefresh() {
+  if (backgroundIngestRefetchTimer) {
+    clearTimeout(backgroundIngestRefetchTimer);
+    backgroundIngestRefetchTimer = null;
+  }
+}
+
 function appendUniqueArticles(prev: Article[], incoming: Article[]): Article[] {
   if (incoming.length === 0) return prev;
   const seen = new Set(prev.map((a) => a.id));
@@ -103,6 +110,8 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   const articlesRef = useRef<Article[]>([]);
   const pendingArticlesRef = useRef<Article[]>([]);
   const fetchGenerationRef = useRef(0);
+  /** After applying pending stories, silent refreshes may queue more pending but must not mutate the visible feed until a real refresh. */
+  const suppressSilentFeedMutationRef = useRef(false);
   const loadRef = useRef<
     ((mode: LoadMode, forceRefresh?: boolean, cursor?: string) => Promise<void>) | undefined
   >(undefined);
@@ -177,6 +186,9 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
                 appendUniqueArticles(pending, newcomers),
               );
             }
+            if (suppressSilentFeedMutationRef.current) {
+              return prev;
+            }
             return updateExistingFeedArticles(prev, data);
           }
           if (mode === 'initial') {
@@ -222,9 +234,11 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
 
       if (user && mode !== 'append' && data.length > 0) {
         const toPersist =
-          mode === 'silent'
+          mode === 'silent' && !suppressSilentFeedMutationRef.current
             ? updateExistingFeedArticles(articlesRef.current, data)
-            : data;
+            : mode === 'silent'
+              ? articlesRef.current
+              : data;
         void saveFeedSnapshot(user.id, sourceIdsKey, toPersist);
       }
     },
@@ -338,7 +352,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
 
       if (snapshot && snapshot.length > 0) {
-        setArticles(snapshot);
+        setArticles(snapshot.map(resolveArticleDisplayFields));
         setIsLoading(false);
         setHadPersistedFeed(true);
       } else {
@@ -359,6 +373,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     if (!feedReady || !persistedHydrated) return;
 
     fetchGenerationRef.current += 1;
+    suppressSilentFeedMutationRef.current = false;
     setPendingArticles([]);
     setNotice(null);
     setNextCursor(null);
@@ -390,6 +405,10 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     const pending = pendingArticlesRef.current;
     if (pending.length === 0) return false;
 
+    fetchGenerationRef.current += 1;
+    cancelScheduledSilentRefresh();
+    suppressSilentFeedMutationRef.current = true;
+
     setArticles((prev) => {
       const merged = mergeArticleFeed(prev, pending);
       if (user) {
@@ -404,6 +423,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (applyPendingArticles()) return;
+    suppressSilentFeedMutationRef.current = false;
     await load('refresh', true);
   }, [applyPendingArticles, load]);
 

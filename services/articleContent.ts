@@ -38,12 +38,49 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+const readerContentCache = new Map<string, ArticleReaderContent>();
+const inFlightFetches = new Map<string, Promise<ArticleReaderContent>>();
+
+export function getCachedReaderContent(articleId: string): ArticleReaderContent | undefined {
+  return readerContentCache.get(articleId);
+}
+
+/** Start loading reader content before navigation so the article screen can render immediately. */
+export function prefetchArticleReaderContent(articleId: string): void {
+  if (readerContentCache.has(articleId) || inFlightFetches.has(articleId)) return;
+  void loadArticleReaderContent(articleId).catch(() => undefined);
+}
+
+async function loadArticleReaderContent(articleId: string): Promise<ArticleReaderContent> {
+  const cached = readerContentCache.get(articleId);
+  if (cached) return cached;
+
+  const inFlight = inFlightFetches.get(articleId);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    const response = await fetch(`${API_URL}/api/articles/${articleId}/content`, {
+      headers: { Accept: 'application/json' },
+    });
+    const data = await parseJson<ContentResponse>(response);
+    const content = normalizeReaderContent(data.content);
+    readerContentCache.set(articleId, content);
+    return content;
+  })();
+
+  inFlightFetches.set(articleId, promise);
+
+  try {
+    return await promise;
+  } finally {
+    if (inFlightFetches.get(articleId) === promise) {
+      inFlightFetches.delete(articleId);
+    }
+  }
+}
+
 export async function fetchArticleReaderContent(
   articleId: string,
 ): Promise<ArticleReaderContent> {
-  const response = await fetch(`${API_URL}/api/articles/${articleId}/content`, {
-    headers: { Accept: 'application/json' },
-  });
-  const data = await parseJson<ContentResponse>(response);
-  return normalizeReaderContent(data.content);
+  return loadArticleReaderContent(articleId);
 }

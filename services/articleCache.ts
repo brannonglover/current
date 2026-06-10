@@ -1,6 +1,6 @@
 import { fetchArticles, FetchArticlesResult } from '@/services/articles';
 
-let warmPromise: Promise<FetchArticlesResult> | null = null;
+let warmPromise: Promise<FetchArticlesResult | undefined> | null = null;
 let warmResult: FetchArticlesResult | null = null;
 
 /** Kick off an article fetch as early as possible (e.g. on app boot). */
@@ -11,6 +11,7 @@ export function warmArticleCache(): void {
       warmResult = result;
       return result;
     })
+    .catch(() => undefined)
     .finally(() => {
       warmPromise = null;
     });
@@ -22,7 +23,10 @@ export function takeWarmArticleCache(): Promise<FetchArticlesResult> | null {
     const pending = warmPromise;
     warmPromise = null;
     warmResult = null;
-    return pending;
+    return pending.then((result) => {
+      if (!result) throw new Error('Warm article cache unavailable');
+      return result;
+    });
   }
   if (warmResult) {
     const cached = warmResult;

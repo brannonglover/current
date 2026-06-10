@@ -59,6 +59,19 @@ run('Guardian body preserves RSS paragraph breaks', () => {
   assert.equal(normalized!.article.body, 'Standfirst line.\n\nOpening paragraph.\n\nThird teaser paragraph.');
 });
 
+run('RSS title strips inline HTML tags', () => {
+  const item = {
+    title: 'Is <i><em>Obsession</em></i> Streaming Yet?',
+    link: 'https://example.com/obsession-streaming',
+    isoDate: '2026-06-09T14:28:09Z',
+    content: '<p>Release date rumors.</p>',
+  };
+
+  const normalized = normalizeFeedItem(item, guardianFeed);
+  assert.ok(normalized);
+  assert.equal(normalized!.article.title, 'Is Obsession Streaming Yet?');
+});
+
 run('Single-paragraph RSS keeps prior excerpt behavior', () => {
   const item = {
     title: 'Simple story',

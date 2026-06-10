@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 
 import { inferSportTags } from '../../catalog/sports';
-import { decodeFeedText, stripAndDecodeHtml } from '../../catalog/decodeHtmlText';
+import { stripAndDecodeHtml } from '../../catalog/decodeHtmlText';
 
 import { detectRequiresSubscription } from './subscription';
 import { Article, FeedConfig, Topic } from './types';
@@ -401,7 +401,7 @@ export function normalizeFeedItem(
   feed: FeedConfig,
 ): NormalizedFeedItem | null {
   const url = resolveFeedItemUrl(item);
-  const title = decodeFeedText(item.title);
+  const title = stripAndDecodeHtml(item.title ?? '');
   if (!url || !title) return null;
 
   const paragraphs = feedItemParagraphs(item);

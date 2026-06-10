@@ -34,3 +34,12 @@ run('decodeFeedText collapses whitespace', () => {
 run('stripAndDecodeHtml removes tags and entities', () => {
   assert.equal(stripAndDecodeHtml('<p>Hello&#8217;s <strong>world</strong></p>'), "Hello's world");
 });
+
+run('stripAndDecodeHtml strips inline emphasis from RSS titles', () => {
+  assert.equal(
+    stripAndDecodeHtml('Is <i><em>Obsession</em></i> Streaming Yet?'),
+    'Is Obsession Streaming Yet?',
+  );
+  assert.equal(stripAndDecodeHtml('Tom &amp; Jerry'), 'Tom & Jerry');
+  assert.equal(stripAndDecodeHtml('Line one<br>Line two'), 'Line one Line two');
+});

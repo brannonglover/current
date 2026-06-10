@@ -6,6 +6,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ArticleImage } from '@/components/ArticleImage';
 import { useTheme } from '@/hooks/useTheme';
 import { rememberOpenArticle } from '@/services/articleSession';
+import { prefetchArticleReaderContent } from '@/services/articleContent';
 import { Article } from '@/types';
 
 interface LikedArticleRowProps {
@@ -30,6 +31,7 @@ export function LikedArticleRow({
   const router = useRouter();
 
   function openArticle() {
+    prefetchArticleReaderContent(article.id);
     rememberOpenArticle(article);
     router.push(`/article/${article.id}`);
   }

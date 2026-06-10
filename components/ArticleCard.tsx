@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,6 +14,7 @@ import {
 } from '@/constants/Layout';
 import { useTheme } from '@/hooks/useTheme';
 import { rememberOpenArticle } from '@/services/articleSession';
+import { prefetchArticleReaderContent } from '@/services/articleContent';
 import { Article } from '@/types';
 
 type ArticleCardVariant = 'default' | 'hero' | 'compact' | 'featured';
@@ -102,6 +104,48 @@ const NEWSPAPER_OVERLAY_SCRIM_COLORS = [
 ] as const;
 const NEWSPAPER_OVERLAY_SCRIM_LOCATIONS = [0, 0.45, 0.78, 1] as const;
 /** Localized scrim behind meta + title — keeps the rest of the hero unobstructed. */
+const SUBSCRIPTION_BADGE_LABEL = 'May need subscription';
+
+function SubscriptionBadge({
+  compact,
+  tone = 'default',
+}: {
+  compact?: boolean;
+  tone?: 'default' | 'onImage';
+}) {
+  const { colors } = useTheme();
+  const onImage = tone === 'onImage';
+
+  if (compact) {
+    return (
+      <View
+        style={onImage ? styles.newspaperSubIconBadge : [styles.subIconBadge, { backgroundColor: colors.border }]}
+        accessibilityRole="image"
+        accessibilityLabel={SUBSCRIPTION_BADGE_LABEL}>
+        <Ionicons
+          name="lock-closed-outline"
+          size={12}
+          color={onImage ? OVERLAY_META_COLOR : colors.textSecondary}
+        />
+      </View>
+    );
+  }
+
+  if (onImage) {
+    return (
+      <View style={styles.newspaperSubBadge} accessibilityRole="text">
+        <Text style={styles.newspaperSubBadgeText}>{SUBSCRIPTION_BADGE_LABEL}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.subBadge, { backgroundColor: colors.border }]} accessibilityRole="text">
+      <Text style={[styles.subBadgeText, { color: colors.textSecondary }]}>{SUBSCRIPTION_BADGE_LABEL}</Text>
+    </View>
+  );
+}
+
 const NEWSPAPER_TEXT_PANEL_GRADIENT = {
   hero: {
     colors: ['rgba(0,0,0,0)', 'rgba(0,0,0,0.52)', 'rgba(0,0,0,0.68)'] as const,
@@ -133,12 +177,14 @@ function NewspaperOverlayCard({
   const imageHeight = height;
   const isHero = variant === 'hero';
   const isFeatured = variant === 'featured';
+  const isCompact = variant === 'compact';
   const requiresSubscription = article.requiresSubscription === true;
   const scrimHeight = Math.round(imageHeight * NEWSPAPER_OVERLAY_SCRIM_HEIGHT_RATIO);
   const textPanelGradient = NEWSPAPER_TEXT_PANEL_GRADIENT[variant];
 
   function openArticle() {
     if (allowPress && !allowPress()) return;
+    prefetchArticleReaderContent(article.id);
     rememberOpenArticle(article);
     router.push(`/article/${article.id}`);
   }
@@ -186,12 +232,12 @@ function NewspaperOverlayCard({
                     : styles.newspaperTextPanelCompact,
               ]}>
               <View style={styles.newspaperMetaRow}>
-                <ArticleSourceMenu article={article} bottomOffset={TAB_BAR_HEIGHT} tone="onImage" />
+                <View style={isCompact ? styles.newspaperMetaSource : undefined}>
+                  <ArticleSourceMenu article={article} bottomOffset={TAB_BAR_HEIGHT} tone="onImage" />
+                </View>
                 <View style={styles.metaEnd}>
                   {requiresSubscription ? (
-                    <View style={styles.newspaperSubBadge}>
-                      <Text style={styles.newspaperSubBadgeText}>May need subscription</Text>
-                    </View>
+                    <SubscriptionBadge compact={isCompact} tone="onImage" />
                   ) : null}
                   <Text style={styles.newspaperMeta}>{formatDate(article.publishedAt)}</Text>
                 </View>
@@ -233,6 +279,7 @@ export function ArticleCard({ article, height, variant = 'default', allowPress }
 
   function openArticle() {
     if (allowPress && !allowPress()) return;
+    prefetchArticleReaderContent(article.id);
     rememberOpenArticle(article);
     router.push(`/article/${article.id}`);
   }
@@ -270,13 +317,7 @@ export function ArticleCard({ article, height, variant = 'default', allowPress }
           <View style={styles.metaRow}>
             <ArticleSourceMenu article={article} bottomOffset={TAB_BAR_HEIGHT} />
             <View style={styles.metaEnd}>
-              {requiresSubscription ? (
-                <View style={[styles.subBadge, { backgroundColor: colors.border }]}>
-                  <Text style={[styles.subBadgeText, { color: colors.textSecondary }]}>
-                    May need subscription
-                  </Text>
-                </View>
-              ) : null}
+              {requiresSubscription ? <SubscriptionBadge /> : null}
               <Text style={[styles.meta, { color: colors.textSecondary }]}>
                 {formatDate(article.publishedAt)}
               </Text>
@@ -395,6 +436,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 999,
   },
+  subIconBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
   subBadgeText: {
     fontFamily: 'InterMedium',
     fontSize: 10,
@@ -489,6 +535,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     gap: 8,
   },
+  newspaperMetaSource: {
+    flex: 1,
+    minWidth: 0,
+  },
   newspaperMeta: {
     fontFamily: 'Inter',
     fontSize: 11,
@@ -499,6 +549,12 @@ const styles = StyleSheet.create({
   newspaperSubBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  newspaperSubIconBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 3,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.18)',
   },

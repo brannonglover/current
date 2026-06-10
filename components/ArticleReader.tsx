@@ -17,7 +17,10 @@ import { ArticleImage } from '@/components/ArticleImage';
 import { ArticleSourceMenu } from '@/components/ArticleSourceMenu';
 import { SubscriptionBanner } from '@/components/SubscriptionBanner';
 import { useTheme } from '@/hooks/useTheme';
-import { fetchArticleReaderContent } from '@/services/articleContent';
+import {
+  fetchArticleReaderContent,
+  getCachedReaderContent,
+} from '@/services/articleContent';
 import { ARTICLE_NO_IMAGE, isArticlePlaceholderImageUrl, resolveArticleImageUrl } from '@/constants/images';
 import { Article } from '@/types';
 import { ArticleReaderBlock, ArticleReaderContent } from '@/types/articleContent';
@@ -90,16 +93,27 @@ export function ArticleReader({ article }: ArticleReaderProps) {
   const insets = useSafeAreaInsets();
   const requiresSubscription = article.requiresSubscription === true;
   const canOpenOnPublisher = hasOpenablePublisherUrl(article.url);
-  const [readerContent, setReaderContent] = useState<ArticleReaderContent | null>(null);
+  const [readerContent, setReaderContent] = useState<ArticleReaderContent | null>(
+    () => getCachedReaderContent(article.id) ?? null,
+  );
   const [contentError, setContentError] = useState(false);
-  const [isLoadingContent, setIsLoadingContent] = useState(true);
+  const [isLoadingContent, setIsLoadingContent] = useState(
+    () => !getCachedReaderContent(article.id),
+  );
 
   useEffect(() => {
     let cancelled = false;
 
-    setIsLoadingContent(true);
-    setContentError(false);
-    setReaderContent(null);
+    const cached = getCachedReaderContent(article.id);
+    if (cached) {
+      setReaderContent(cached);
+      setContentError(false);
+      setIsLoadingContent(false);
+    } else {
+      setIsLoadingContent(true);
+      setContentError(false);
+      setReaderContent(null);
+    }
 
     fetchArticleReaderContent(article.id)
       .then((content) => {
@@ -123,10 +137,9 @@ export function ArticleReader({ article }: ArticleReaderProps) {
     article,
     extractedBlocks,
   });
-  const feedLedeText =
-    isLoadingContent && article.excerpt.trim() ? article.excerpt.trim() : feedLede;
-  const showFeedLede = !!feedLedeText;
+  const showFeedLede = !!feedLede;
   const hasReadableBody = bodyBlocks.length > 0;
+  const showLoadingBody = isLoadingContent && !hasReadableBody;
   const showLoadMoreError = contentError && !isLoadingContent && !hasReadableBody;
 
   return (
@@ -185,7 +198,7 @@ export function ArticleReader({ article }: ArticleReaderProps) {
             </Pressable>
           ) : null}
 
-          {showFeedLede && feedLedeText ? (
+          {showFeedLede && feedLede ? (
             <View
               style={[
                 styles.feedLedeBox,
@@ -197,12 +210,20 @@ export function ArticleReader({ article }: ArticleReaderProps) {
                 Feed preview
               </Text>
               <Text style={[styles.feedLedeText, { color: colors.textSecondary }]}>
-                {feedLedeText}
+                {feedLede}
               </Text>
             </View>
           ) : null}
 
-          {isLoadingContent ? (
+          {bodyBlocks.map((block, index) => (
+            <ReaderBlockView
+              key={`${block.type}:${index}`}
+              block={block}
+              colors={colors}
+            />
+          ))}
+
+          {showLoadingBody ? (
             <View style={styles.loadingBody}>
               <ActivityIndicator color={colors.textSecondary} />
               <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
@@ -216,16 +237,6 @@ export function ArticleReader({ article }: ArticleReaderProps) {
               We couldn't load more of this article in the app.
             </Text>
           ) : null}
-
-          {!isLoadingContent
-            ? bodyBlocks.map((block, index) => (
-                <ReaderBlockView
-                  key={`${block.type}:${index}`}
-                  block={block}
-                  colors={colors}
-                />
-              ))
-            : null}
 
           {canOpenOnPublisher ? (
             <Pressable

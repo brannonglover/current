@@ -375,7 +375,7 @@ export function parseWorldCupRss(xml: string, source: string): WorldCupUpdate[] 
   const updates: WorldCupUpdate[] = [];
 
   for (const block of items) {
-    const title = decodeFeedText(extractRssTag(block, 'title'));
+    const title = stripAndDecodeHtml(extractRssTag(block, 'title'));
     const link = decodeFeedText(extractRssTag(block, 'link'));
     const guid = decodeFeedText(extractRssTag(block, 'guid'));
     const pubDate = extractRssTag(block, 'pubDate');

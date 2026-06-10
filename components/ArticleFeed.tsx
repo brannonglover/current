@@ -37,6 +37,7 @@ import {
   NEWSPAPER_HERO_HEIGHT_RATIO,
 } from '@/constants/Layout';
 import { useTheme } from '@/hooks/useTheme';
+import { prefetchArticleReaderContent } from '@/services/articleContent';
 import { Article } from '@/types';
 import {
   buildNewspaperFeaturedIds,
@@ -197,6 +198,8 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
   const pendingScrollBaselineRef = useRef(0);
   const userInitiatedScrollRef = useRef(false);
   const emptyPendingDismissedRef = useRef(false);
+  const articlesRef = useRef(articles);
+  articlesRef.current = articles;
 
   const allowCardPress = useCallback(() => {
     if (feedScrollRef.current.dragging) return false;
@@ -235,6 +238,20 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
         activeIndexRef.current = viewableItems[0].index;
         setActiveIndex(viewableItems[0].index);
+      }
+
+      const prefetchIds = new Set<string>();
+      for (const token of viewableItems) {
+        const article = token.item as Article | undefined;
+        if (article?.id) prefetchIds.add(article.id);
+      }
+      const leadIndex = viewableItems[0]?.index;
+      if (leadIndex != null) {
+        const next = articlesRef.current[leadIndex + 1];
+        if (next?.id) prefetchIds.add(next.id);
+      }
+      for (const id of prefetchIds) {
+        prefetchArticleReaderContent(id);
       }
     },
   );

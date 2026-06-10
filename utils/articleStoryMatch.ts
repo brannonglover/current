@@ -1,4 +1,4 @@
-import { decodeFeedText } from '@/catalog/decodeHtmlText';
+import { stripAndDecodeHtml } from '@/catalog/decodeHtmlText';
 import { isArticlePlaceholderImageUrl } from '@/constants/images';
 import { SOURCE_CATALOG } from '@/catalog/sources';
 import { Article } from '@/types';
@@ -12,7 +12,7 @@ export function hasRealHeroImage(article: Article): boolean {
 
 /** Normalize headline text for cross-outlet story matching. */
 export function normalizeStoryTitle(title: string): string {
-  let normalized = decodeFeedText(title).trim().toLowerCase();
+  let normalized = stripAndDecodeHtml(title).trim().toLowerCase();
   normalized = normalized.replace(/\s*[-–—|]\s*[^-|–—]{2,48}$/u, '').trim();
   normalized = normalized.replace(/["""''`]/g, '');
   normalized = normalized.replace(/[^\p{L}\p{N}\s]/gu, ' ');
