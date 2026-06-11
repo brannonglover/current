@@ -97,6 +97,15 @@ export default function LatestScreen() {
         if (prev.length === 0 && filteredArticles.length > 0) {
           return orderLatestFeed(filteredArticles, orderOpts);
         }
+
+        const prevIds = new Set(prev.map((article) => article.id));
+        const newOnly = filteredArticles.filter((article) => !prevIds.has(article.id));
+        if (newOnly.length > 0) {
+          return mergePaginatedDisplayFeed(prev, newOnly, filteredArticles, (items) =>
+            orderLatestFeedPage(items, orderOpts),
+          );
+        }
+
         const byId = new Map(filteredArticles.map((a) => [a.id, a]));
         let changed = false;
         const next = prev
@@ -159,6 +168,7 @@ export default function LatestScreen() {
       onRefresh={refresh}
       onLoadMore={hasMore ? loadMore : undefined}
       isLoadingMore={isLoadingMore}
+      loadMoreCursor={articles.length}
       pendingCount={pendingCount}
       pendingRefreshHint="pull down or tap Latest"
       onDismissPending={dismissPendingArticles}

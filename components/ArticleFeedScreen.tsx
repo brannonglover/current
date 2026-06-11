@@ -18,6 +18,7 @@ interface ArticleFeedScreenProps {
   onRefresh?: () => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
+  loadMoreCursor?: number;
   headerExtra?: React.ReactNode;
   pendingCount?: number;
   pendingRefreshHint?: string;
@@ -40,6 +41,7 @@ export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreen
       onRefresh,
       onLoadMore,
       isLoadingMore,
+      loadMoreCursor,
       headerExtra,
       pendingCount = 0,
       pendingRefreshHint,
@@ -87,6 +89,7 @@ export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreen
         onDismissPending={onDismissPending}
         onLoadMore={onLoadMore}
         isLoadingMore={isLoadingMore}
+        loadMoreCursor={loadMoreCursor}
         layout={layout}
       />
     </View>

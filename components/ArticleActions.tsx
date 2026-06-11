@@ -23,11 +23,11 @@ export function ArticleActions({
   const liked = isLiked(article.id);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
-  async function handleLike() {
+  function handleLike() {
+    toggleLike(article);
     if (Platform.OS !== 'web') {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    await toggleLike(article);
   }
 
   async function handleShare() {

@@ -66,3 +66,99 @@ export function findHotTrendingCandidates(
 
   return candidates;
 }
+
+/** Article ids in the feed trending window (6h) — the segment kept at the top. */
+export function buildFeedTrendingArticleIds(
+  articles: Article[],
+  nowMs: number = Date.now(),
+): Set<string> {
+  const ids = new Set<string>();
+  for (const article of articles) {
+    if (isInTrendingWindow(article, nowMs)) ids.add(article.id);
+  }
+  return ids;
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/** Calendar days between publish date and now (local midnight boundaries). */
+export function calendarDaysSincePublished(article: Article, nowMs: number = Date.now()): number {
+  const published = new Date(article.publishedAt);
+  const now = new Date(nowMs);
+  const pubDay = new Date(published.getFullYear(), published.getMonth(), published.getDate()).getTime();
+  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.round((nowDay - pubDay) / MS_PER_DAY));
+}
+
+export type TrendingBadgeKind = 'trending' | 'still-trending';
+
+export type TrendingBadge = {
+  kind: TrendingBadgeKind;
+  days: number;
+};
+
+export const TRENDING_BADGE_LABEL = 'Trending';
+
+/** Visible badge copy — adds duration once publish spans 2+ calendar days. */
+export function trendingBadgeLabel(badge: TrendingBadge): string {
+  if (badge.days >= 2) return `${TRENDING_BADGE_LABEL} · ${badge.days}d`;
+  return TRENDING_BADGE_LABEL;
+}
+
+/** Full phrase for compact (icon-only) badges and screen readers. */
+export function trendingBadgeAccessibilityLabel(badge: TrendingBadge): string {
+  if (badge.days >= 2) return `${badge.days} days trending`;
+  return TRENDING_BADGE_LABEL;
+}
+
+function makeTrendingBadge(
+  article: Article,
+  nowMs: number,
+  kind: TrendingBadgeKind,
+): TrendingBadge {
+  return { kind, days: calendarDaysSincePublished(article, nowMs) };
+}
+
+/**
+ * Feed cards that should show a trending badge and which label to use.
+ *
+ * - Hero (#1): always — sticky head, including multi-day stories still pinned at top.
+ * - Hot burst/breaking or newspaper featured row: "Trending".
+ * - Regular compact-grid articles: no badge unless hot or featured.
+ * - Multi-day badges append duration (e.g. "Trending · 2d") once publish spans 2+ calendar days.
+ */
+export function buildFeedTrendingBadgeByArticleId(
+  articles: Article[],
+  options?: {
+    featuredIds?: Set<string>;
+    nowMs?: number;
+  },
+): Map<string, TrendingBadge> {
+  const nowMs = options?.nowMs ?? Date.now();
+  const featuredIds = options?.featuredIds ?? new Set<string>();
+  const inWindow = buildFeedTrendingArticleIds(articles, nowMs);
+  const hotIds = new Set(
+    findHotTrendingCandidates(articles, nowMs).map((candidate) => candidate.article.id),
+  );
+  const badges = new Map<string, TrendingBadge>();
+
+  articles.forEach((article, index) => {
+    const isHero = index === 0;
+    const inTrendingWindow = inWindow.has(article.id);
+    const isHot = hotIds.has(article.id);
+    const isFeatured = featuredIds.has(article.id);
+
+    if (isHero) {
+      const kind: TrendingBadgeKind =
+        inTrendingWindow || isHot ? 'trending' : 'still-trending';
+      badges.set(article.id, makeTrendingBadge(article, nowMs, kind));
+      return;
+    }
+
+    if (isHot || isFeatured) {
+      badges.set(article.id, makeTrendingBadge(article, nowMs, 'trending'));
+    }
+  });
+
+  return badges;
+}

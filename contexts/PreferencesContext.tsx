@@ -60,7 +60,7 @@ interface PreferencesContextValue {
   sources: FeedSource[];
   isLoading: boolean;
   isLiked: (articleId: string) => boolean;
-  toggleLike: (article: Article) => Promise<void>;
+  toggleLike: (article: Article) => void;
   rememberLikedArticles: (articles: Article[]) => Promise<void>;
   topTopics: string[];
   topSources: string[];
@@ -132,8 +132,17 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     async (next: UserPreferences) => {
       if (!user) return;
       const normalized = normalizeFeedPreferences(next);
+      const previous = preferencesRef.current;
       setPreferences(normalized);
-      await savePreferences(user.id, normalized);
+      preferencesRef.current = normalized;
+      try {
+        await savePreferences(user.id, normalized);
+      } catch {
+        if (preferencesRef.current === normalized) {
+          preferencesRef.current = previous;
+          setPreferences(previous);
+        }
+      }
     },
     [user],
   );
@@ -155,30 +164,33 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   );
 
   const toggleLike = useCallback(
-    async (article: Article) => {
-      if (!user || !preferences) return;
+    (article: Article) => {
+      if (!user) return;
 
-      const liked = preferences.likedArticleIds.includes(article.id);
+      const current = preferencesRef.current;
+      if (!current) return;
+
+      const liked = current.likedArticleIds.includes(article.id);
       const likedArticleIds = liked
-        ? preferences.likedArticleIds.filter((id) => id !== article.id)
-        : [...preferences.likedArticleIds, article.id];
+        ? current.likedArticleIds.filter((id) => id !== article.id)
+        : [...current.likedArticleIds, article.id];
 
-      const signals = applyArticleLikeSignals(preferences, article, liked);
+      const signals = applyArticleLikeSignals(current, article, liked);
 
       const folders = liked
-        ? preferences.folders.map((folder) => ({
+        ? current.folders.map((folder) => ({
             ...folder,
             articleIds: folder.articleIds.filter((id) => id !== article.id),
           }))
-        : preferences.folders;
+        : current.folders;
 
       const likedArticles = liked
-        ? removeLikedArticleSnapshot(preferences.likedArticles ?? {}, article.id)
-        : mergeLikedArticleSnapshot(preferences.likedArticles ?? {}, article);
+        ? removeLikedArticleSnapshot(current.likedArticles ?? {}, article.id)
+        : mergeLikedArticleSnapshot(current.likedArticles ?? {}, article);
 
-      await persist({ ...preferences, likedArticleIds, likedArticles, ...signals, folders });
+      void persist({ ...current, likedArticleIds, likedArticles, ...signals, folders });
     },
-    [user, preferences, persist],
+    [user, persist],
   );
 
   const rememberLikedArticles = useCallback(

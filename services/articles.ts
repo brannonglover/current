@@ -33,8 +33,8 @@ interface ArticleResponse {
   article: Article;
 }
 
-/** Page size for initial load and infinite scroll. */
-export const ARTICLE_PAGE_SIZE = 80;
+/** Page size for initial load and infinite scroll (API caps at 100). */
+export const ARTICLE_PAGE_SIZE = 100;
 const FETCH_TIMEOUT_MS = 12_000;
 /** First page may wait on cold-start ingest; allow longer than paginated requests. */
 const INITIAL_FETCH_TIMEOUT_MS = 60_000;

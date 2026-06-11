@@ -59,7 +59,16 @@ export default function ForYouScreen() {
       });
     } else if (prevRawLengthRef.current > 0) {
       setDisplayArticles((prev) => {
-        if (prev.length === 0) return prev;
+        if (prev.length === 0 && ranked.length > 0) {
+          return orderPersonalizedFeed(ranked);
+        }
+
+        const prevIds = new Set(prev.map((article) => article.id));
+        const newOnly = ranked.filter((article) => !prevIds.has(article.id));
+        if (newOnly.length > 0) {
+          return mergePaginatedDisplayFeed(prev, newOnly, ranked, orderPersonalizedFeed);
+        }
+
         const byId = new Map(ranked.map((a) => [a.id, a]));
         let changed = false;
         const next = prev

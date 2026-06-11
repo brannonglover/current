@@ -3,7 +3,14 @@ import test from 'node:test';
 
 import { Article } from '@/types';
 
-import { findHotTrendingCandidates } from '@/utils/trendingArticles';
+import {
+  buildFeedTrendingBadgeByArticleId,
+  calendarDaysSincePublished,
+  findHotTrendingCandidates,
+  TRENDING_BADGE_LABEL,
+  trendingBadgeAccessibilityLabel,
+  trendingBadgeLabel,
+} from '@/utils/trendingArticles';
 
 function article(
   id: string,
@@ -55,4 +62,101 @@ test('findHotTrendingCandidates ignores stories outside trending window', () => 
   const old = new Date(now - 8 * 60 * 60 * 1000).toISOString();
   const hot = findHotTrendingCandidates([article('old', 'Wire', old)], now);
   assert.equal(hot.length, 0);
+});
+
+test('calendarDaysSincePublished uses local calendar day boundaries', () => {
+  const now = new Date(2026, 5, 11, 12, 0, 0).getTime();
+  const sameDay = new Date(2026, 5, 11, 1, 0, 0).toISOString();
+  const yesterday = new Date(2026, 5, 10, 23, 0, 0).toISOString();
+  const twoDaysAgo = new Date(2026, 5, 9, 10, 0, 0).toISOString();
+
+  assert.equal(calendarDaysSincePublished(article('a', 'Wire', sameDay), now), 0);
+  assert.equal(calendarDaysSincePublished(article('b', 'Wire', yesterday), now), 1);
+  assert.equal(calendarDaysSincePublished(article('c', 'Wire', twoDaysAgo), now), 2);
+});
+
+test('trendingBadgeLabel reflects multi-day duration', () => {
+  assert.equal(trendingBadgeLabel({ kind: 'trending', days: 0 }), TRENDING_BADGE_LABEL);
+  assert.equal(trendingBadgeLabel({ kind: 'trending', days: 3 }), 'Trending · 3d');
+  assert.equal(trendingBadgeLabel({ kind: 'still-trending', days: 0 }), TRENDING_BADGE_LABEL);
+  assert.equal(trendingBadgeLabel({ kind: 'still-trending', days: 1 }), TRENDING_BADGE_LABEL);
+  assert.equal(trendingBadgeLabel({ kind: 'still-trending', days: 2 }), 'Trending · 2d');
+});
+
+test('trendingBadgeAccessibilityLabel describes multi-day trending', () => {
+  assert.equal(trendingBadgeAccessibilityLabel({ kind: 'still-trending', days: 0 }), TRENDING_BADGE_LABEL);
+  assert.equal(trendingBadgeAccessibilityLabel({ kind: 'still-trending', days: 2 }), '2 days trending');
+});
+
+test('buildFeedTrendingBadgeByArticleId marks sticky multi-day hero with duration', () => {
+  const now = new Date(2026, 5, 11, 12, 0, 0).getTime();
+  const twoDaysAgo = new Date(2026, 5, 9, 10, 0, 0).toISOString();
+  const recent = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+
+  const badges = buildFeedTrendingBadgeByArticleId(
+    [article('hero', 'MSNBC', twoDaysAgo), article('fresh', 'Wire', recent)],
+    { nowMs: now },
+  );
+
+  const heroBadge = badges.get('hero');
+  assert.deepEqual(heroBadge, { kind: 'still-trending', days: 2 });
+  assert.equal(trendingBadgeLabel(heroBadge!), 'Trending · 2d');
+  assert.equal(trendingBadgeAccessibilityLabel(heroBadge!), '2 days trending');
+
+  assert.equal(badges.has('fresh'), false);
+});
+
+test('buildFeedTrendingBadgeByArticleId includes featured and hot stories', () => {
+  const now = Date.now();
+  const recent = (offsetMs: number) => new Date(now - offsetMs).toISOString();
+
+  const articles = [
+    article('hero', 'Wire', recent(20 * 60 * 1000)),
+    article('burst-a', 'BurstCo', recent(25 * 60 * 1000)),
+    article('burst-b', 'BurstCo', recent(35 * 60 * 1000)),
+    article('plain', 'Other', recent(2 * 60 * 60 * 1000)),
+  ];
+
+  const badges = buildFeedTrendingBadgeByArticleId(articles, {
+    featuredIds: new Set(['burst-a']),
+    nowMs: now,
+  });
+
+  assert.deepEqual(badges.get('hero'), { kind: 'trending', days: 0 });
+  assert.deepEqual(badges.get('burst-a'), { kind: 'trending', days: 0 });
+  assert.equal(badges.has('plain'), false);
+  assert.deepEqual(badges.get('burst-b'), { kind: 'trending', days: 0 });
+});
+
+test('buildFeedTrendingBadgeByArticleId skips in-window compact articles that are not hot', () => {
+  const now = Date.now();
+  const recent = (offsetMs: number) => new Date(now - offsetMs).toISOString();
+
+  const articles = [
+    article('hero', 'Polygon', recent(10 * 60 * 1000)),
+    article('p1', 'Kotaku', recent(2 * 60 * 60 * 1000)),
+    article('g1', 'GamesRadar+', recent(2.5 * 60 * 60 * 1000)),
+    article('g2', 'GamesRadar+', recent(2.75 * 60 * 60 * 1000)),
+    article('i1', 'IGN', recent(3 * 60 * 60 * 1000)),
+  ];
+
+  const badges = buildFeedTrendingBadgeByArticleId(articles, { nowMs: now });
+
+  assert.deepEqual(badges.get('hero'), { kind: 'trending', days: 0 });
+  assert.equal(badges.has('p1'), false);
+  assert.deepEqual(badges.get('g1'), { kind: 'trending', days: 0 });
+  assert.deepEqual(badges.get('g2'), { kind: 'trending', days: 0 });
+  assert.equal(badges.has('i1'), false);
+});
+
+test('buildFeedTrendingBadgeByArticleId marks in-window hero that is not hot', () => {
+  const now = Date.now();
+  const recent = (offsetMs: number) => new Date(now - offsetMs).toISOString();
+
+  const badges = buildFeedTrendingBadgeByArticleId(
+    [article('hero', 'Solo', recent(2 * 60 * 60 * 1000))],
+    { nowMs: now },
+  );
+
+  assert.deepEqual(badges.get('hero'), { kind: 'trending', days: 0 });
 });

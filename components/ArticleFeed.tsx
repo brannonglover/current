@@ -1,8 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   LayoutChangeEvent,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   PixelRatio,
   RefreshControlProps,
   ScrollView,
@@ -44,8 +47,21 @@ import {
   groupNewspaperFeedRows,
   NewspaperFeedRow,
 } from '@/utils/newspaperFeedRows';
+import {
+  buildFeedTrendingBadgeByArticleId,
+  TrendingBadge,
+} from '@/utils/trendingArticles';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<Article>);
+
+/** Start fetching the next page this many snap cards before the end. */
+const SNAP_LOAD_MORE_PREFETCH_ITEMS = 5;
+/** Start fetching when the user scrolls within this many newspaper rows of the end. */
+const NEWSPAPER_LOAD_MORE_PREFETCH_ROWS = 4;
+/** Fraction of viewport height from the bottom that triggers onEndReached (newspaper). */
+const NEWSPAPER_END_REACHED_THRESHOLD = 0.75;
+/** Auto-fetch when content is only slightly taller than the viewport. */
+const SHORT_CONTENT_HEIGHT_RATIO = 1.12;
 
 /** 1px rule between feed articles — explicit View so it stays visible on full-bleed cards. */
 function FeedArticleSeparator({ color, vertical = false }: { color: string; vertical?: boolean }) {
@@ -80,8 +96,26 @@ interface ArticleFeedProps {
   onDismissPending?: () => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
+  /**
+   * Upstream feed size (e.g. raw articles before display filters). Used to re-trigger
+   * loadMore after pagination even when the visible list length is unchanged.
+   */
+  loadMoreCursor?: number;
   /** Visual trial: hero story above the fold, compact cards below */
   layout?: ArticleFeedLayout;
+}
+
+function FeedLoadMoreFooter() {
+  const { colors } = useTheme();
+
+  return (
+    <View style={styles.loadMoreFooter}>
+      <ActivityIndicator size="small" color={colors.textSecondary} />
+      <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>
+        Loading more stories...
+      </Text>
+    </View>
+  );
 }
 
 function FeedStatusBanner({
@@ -128,6 +162,7 @@ function FeedCardItem({
   showTopSeparator,
   endPullDistance,
   allowPress,
+  trendingBadge,
 }: {
   article: Article;
   height: number;
@@ -135,6 +170,7 @@ function FeedCardItem({
   showTopSeparator: boolean;
   endPullDistance: SharedValue<number>;
   allowPress: () => boolean;
+  trendingBadge?: TrendingBadge;
 }) {
   const { colors } = useTheme();
   const stretchStyle = useAnimatedStyle(() => {
@@ -149,7 +185,12 @@ function FeedCardItem({
     <>
       {showTopSeparator ? <FeedArticleSeparator color={colors.feedDivider} /> : null}
       <Animated.View style={stretchStyle}>
-        <ArticleCard article={article} height={height} allowPress={allowPress} />
+        <ArticleCard
+          article={article}
+          height={height}
+          allowPress={allowPress}
+          trendingBadge={trendingBadge}
+        />
       </Animated.View>
     </>
   );
@@ -172,6 +213,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
     onDismissPending,
     onLoadMore,
     isLoadingMore,
+    loadMoreCursor,
     layout = 'snap',
   },
   ref,
@@ -193,11 +235,23 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
   const maxScrollOffset = useSharedValue(0);
   const endPullDistance = useSharedValue(0);
   const feedScrollRef = useRef({ dragging: false, endedAt: 0 });
-  const loadMoreTriggeredAtLengthRef = useRef(0);
+  const loadMoreTriggeredAtCursorRef = useRef(0);
+  const newspaperRowsCountRef = useRef(0);
+  const newspaperLastVisibleRowRef = useRef(-1);
+  const requestLoadMoreRef = useRef<() => void>(() => {});
+  const loadMoreCursorValue = loadMoreCursor ?? articles.length;
   const prevPendingCountRef = useRef(0);
   const pendingScrollBaselineRef = useRef(0);
   const userInitiatedScrollRef = useRef(false);
   const emptyPendingDismissedRef = useRef(false);
+  const feedTrendingBadges = useMemo(
+    () =>
+      buildFeedTrendingBadgeByArticleId(articles, {
+        featuredIds:
+          layout === 'newspaper' ? buildNewspaperFeaturedIds(articles) : new Set<string>(),
+      }),
+    [articles, layout],
+  );
   const articlesRef = useRef(articles);
   articlesRef.current = articles;
 
@@ -382,33 +436,111 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
     onDismissPending();
   }, [activeIndex, pendingCount, onDismissPending]);
 
+  const requestLoadMore = useCallback(() => {
+    if (!onLoadMore || isLoadingMore) return;
+    if (loadMoreTriggeredAtCursorRef.current >= loadMoreCursorValue) return;
+    loadMoreTriggeredAtCursorRef.current = loadMoreCursorValue;
+    onLoadMore();
+  }, [onLoadMore, isLoadingMore, loadMoreCursorValue]);
+
+  requestLoadMoreRef.current = requestLoadMore;
+
   useEffect(() => {
     if (!onLoadMore || isLoadingMore) return;
-    if (activeIndex < articles.length - 4) {
-      loadMoreTriggeredAtLengthRef.current = 0;
+    if (activeIndex < articles.length - SNAP_LOAD_MORE_PREFETCH_ITEMS) {
+      loadMoreTriggeredAtCursorRef.current = 0;
       return;
     }
-    if (loadMoreTriggeredAtLengthRef.current >= articles.length) return;
-    loadMoreTriggeredAtLengthRef.current = articles.length;
-    onLoadMore();
-  }, [activeIndex, articles.length, onLoadMore, isLoadingMore]);
+    requestLoadMore();
+  }, [activeIndex, articles.length, onLoadMore, isLoadingMore, requestLoadMore]);
+
+  useEffect(() => {
+    if (!onLoadMore || isLoadingMore) return;
+    if (layout === 'newspaper') {
+      const totalRows = newspaperRowsCountRef.current;
+      const lastVisible = newspaperLastVisibleRowRef.current;
+      if (totalRows > 0 && lastVisible >= totalRows - NEWSPAPER_LOAD_MORE_PREFETCH_ROWS) {
+        requestLoadMore();
+      }
+      return;
+    }
+    if (activeIndex >= articles.length - SNAP_LOAD_MORE_PREFETCH_ITEMS) {
+      requestLoadMore();
+    }
+  }, [loadMoreCursorValue, isLoadingMore, layout, activeIndex, articles.length, onLoadMore, requestLoadMore]);
+
+  const maybeLoadMoreForShortContent = useCallback(
+    (contentHeight: number) => {
+      if (!onLoadMore || isLoadingMore || pageHeight <= 0) return;
+      if (contentHeight > pageHeight * SHORT_CONTENT_HEIGHT_RATIO) return;
+      requestLoadMore();
+    },
+    [onLoadMore, isLoadingMore, pageHeight, requestLoadMore],
+  );
+
+  const onNewspaperViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      let maxIndex = -1;
+      const prefetchIds = new Set<string>();
+
+      for (const token of viewableItems) {
+        if (token.index != null && token.index > maxIndex) {
+          maxIndex = token.index;
+        }
+        const row = token.item as NewspaperFeedRow | undefined;
+        if (!row) continue;
+        if (row.type === 'featured') {
+          if (row.article.id) prefetchIds.add(row.article.id);
+        } else {
+          for (const article of row.articles) {
+            if (article.id) prefetchIds.add(article.id);
+          }
+        }
+      }
+
+      newspaperLastVisibleRowRef.current = maxIndex;
+
+      const totalRows = newspaperRowsCountRef.current;
+      if (totalRows > 0 && maxIndex >= totalRows - NEWSPAPER_LOAD_MORE_PREFETCH_ROWS) {
+        requestLoadMoreRef.current();
+      }
+
+      for (const id of prefetchIds) {
+        prefetchArticleReaderContent(id);
+      }
+    },
+  );
+
+  const newspaperViewabilityConfig = useRef({ itemVisiblePercentThreshold: 15 });
 
   const onNewspaperScroll = useCallback(
-    (offsetY: number) => {
-      if (pendingCount <= 0 || !onDismissPending) return;
-      if (offsetY < 24) return;
-      if (!userInitiatedScrollRef.current) return;
-      onDismissPending();
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const offsetY = contentOffset.y;
+
+      if (pendingCount > 0 && onDismissPending && !emptyPendingDismissedRef.current) {
+        if (offsetY >= 24 && userInitiatedScrollRef.current) {
+          emptyPendingDismissedRef.current = true;
+          onDismissPending();
+        }
+      }
+
+      if (!onLoadMore || isLoadingMore || pageHeight <= 0) return;
+      const distanceFromEnd =
+        contentSize.height - (offsetY + layoutMeasurement.height);
+      const prefetchLeadPx =
+        NEWSPAPER_FEATURED_CARD_HEIGHT * NEWSPAPER_LOAD_MORE_PREFETCH_ROWS +
+        NEWSPAPER_COMPACT_CARD_HEIGHT * NEWSPAPER_LOAD_MORE_PREFETCH_ROWS;
+      if (distanceFromEnd <= prefetchLeadPx) {
+        requestLoadMore();
+      }
     },
-    [pendingCount, onDismissPending],
+    [pendingCount, onDismissPending, onLoadMore, isLoadingMore, pageHeight, requestLoadMore],
   );
 
   const onNewspaperEndReached = useCallback(() => {
-    if (!onLoadMore || isLoadingMore) return;
-    if (loadMoreTriggeredAtLengthRef.current >= articles.length) return;
-    loadMoreTriggeredAtLengthRef.current = articles.length;
-    onLoadMore();
-  }, [onLoadMore, isLoadingMore, articles.length]);
+    requestLoadMore();
+  }, [requestLoadMore]);
 
   const handleApplyPending = useCallback(() => {
     if (pendingCount <= 0 || !onApplyPending) return;
@@ -417,6 +549,9 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
       onApplyPending();
     })();
   }, [pendingCount, onApplyPending, scrollToTop]);
+
+  const showLoadMoreFooter = !!onLoadMore && !!isLoadingMore;
+  const loadMoreListFooter = showLoadMoreFooter ? <FeedLoadMoreFooter /> : null;
 
   if (articles.length === 0) {
     return (
@@ -464,6 +599,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
     const belowFoldArticles = articles.slice(1);
     const featuredIds = buildNewspaperFeaturedIds(articles);
     const newspaperRows = groupNewspaperFeedRows(belowFoldArticles, featuredIds);
+    newspaperRowsCountRef.current = newspaperRows.length;
     const heroHeight =
       pageHeight > 0 ? normalizeHeight(Math.round(pageHeight * NEWSPAPER_HERO_HEIGHT_RATIO)) : 0;
 
@@ -490,6 +626,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                     height={heroHeight}
                     variant="hero"
                     allowPress={allowCardPress}
+                    trendingBadge={feedTrendingBadges.get(heroArticle.id)}
                   />
                 ) : null
               }
@@ -503,6 +640,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                         height={NEWSPAPER_FEATURED_CARD_HEIGHT}
                         variant="featured"
                         allowPress={allowCardPress}
+                        trendingBadge={feedTrendingBadges.get(row.article.id)}
                       />
                     </View>
                   );
@@ -523,6 +661,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                               height={NEWSPAPER_COMPACT_CARD_HEIGHT}
                               variant="compact"
                               allowPress={allowCardPress}
+                              trendingBadge={feedTrendingBadges.get(article.id)}
                             />
                           </View>
                         </View>
@@ -540,11 +679,15 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                 onFeedScrollBeginDrag();
                 userInitiatedScrollRef.current = true;
               }}
-              onScroll={(event) => onNewspaperScroll(event.nativeEvent.contentOffset.y)}
+              onScroll={onNewspaperScroll}
               onScrollEndDrag={markFeedScrollEnded}
               onMomentumScrollEnd={markFeedScrollEnded}
+              onViewableItemsChanged={onNewspaperViewableItemsChanged.current}
+              viewabilityConfig={newspaperViewabilityConfig.current}
               onEndReached={onNewspaperEndReached}
-              onEndReachedThreshold={0.4}
+              onEndReachedThreshold={NEWSPAPER_END_REACHED_THRESHOLD}
+              onContentSizeChange={(_, height) => maybeLoadMoreForShortContent(height)}
+              ListFooterComponent={loadMoreListFooter}
             />
           ) : null}
         </View>
@@ -576,6 +719,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                 showTopSeparator={index > 0}
                 endPullDistance={endPullDistance}
                 allowPress={allowCardPress}
+                trendingBadge={feedTrendingBadges.get(item.id)}
               />
             )}
             style={[styles.list, { height: pageHeight, zIndex: 0 }]}
@@ -602,10 +746,18 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
               offset: snapMetrics.snapHeight * index,
               index,
             })}
+            onEndReached={requestLoadMore}
+            onEndReachedThreshold={0.65}
+            onContentSizeChange={(_, height) => maybeLoadMoreForShortContent(height)}
           />
         )}
         {pageHeight > 0 && hasMoreBelow && <FeedBottomVignette />}
-        {pageHeight > 0 && isAtEnd && !freeScroll && (
+        {pageHeight > 0 && showLoadMoreFooter && (
+          <View style={styles.loadMoreOverlay} pointerEvents="none">
+            <FeedLoadMoreFooter />
+          </View>
+        )}
+        {pageHeight > 0 && isAtEnd && !freeScroll && !onLoadMore && (
           <FeedEndStretch pullDistance={endPullDistance} />
         )}
       </View>
@@ -714,5 +866,26 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     overflow: 'hidden',
+  },
+  loadMoreFooter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+  },
+  loadMoreText: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: 0.2,
+  },
+  loadMoreOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 24,
+    zIndex: 8,
+    alignItems: 'center',
   },
 });
