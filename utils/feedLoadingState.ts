@@ -4,7 +4,12 @@ export function shouldShowArticleFeedLoading(options: {
   isLoading: boolean;
   feedReady: boolean;
   persistedHydrated: boolean;
+  awaitingBackgroundFeed?: boolean;
 }): boolean {
-  const { articleCount, isLoading, feedReady, persistedHydrated } = options;
-  return articleCount === 0 && (isLoading || !feedReady || !persistedHydrated);
+  const { articleCount, isLoading, feedReady, persistedHydrated, awaitingBackgroundFeed } =
+    options;
+  if (articleCount > 0) return false;
+  return (
+    isLoading || !feedReady || !persistedHydrated || awaitingBackgroundFeed === true
+  );
 }

@@ -233,3 +233,38 @@ run('resolveReaderBlockLayout keeps leading body image when article has no hero'
   assert.equal(layout.bodyBlocks.length, 2);
   assert.equal(layout.bodyBlocks[0]?.type, 'image');
 });
+
+run('resolveReaderBlockLayout strips Guardian live-blog Key events sidebar and pro-tip', () => {
+  const article = {
+    id: 'guardian-live',
+    title: 'World Cup 2026: Mexico’s winning start – live',
+    excerpt: 'Live updates from the tournament.',
+    body: '',
+    source: 'The Guardian Football',
+    imageUrl: 'https://example.com/hero.jpg',
+    topics: ['sports'],
+    readTimeMinutes: 5,
+    publishedAt: '2026-06-12T13:47:42.000Z',
+    url: 'https://www.theguardian.com/football/live/2026/jun/12/world-cup-2026-news-updates-live',
+  } satisfies Article;
+
+  const layout = resolveReaderBlockLayout({
+    article,
+    extractedBlocks: [
+      {
+        type: 'paragraph',
+        text:
+          'Key events4h agoRepublic of Ireland to face Israel in neutral country4h agoKenny Jackett dies, aged 644h agoEndo retires from Japan duty as injury ends World Cup dream6h agoPFA refuses to drop legal case against Fifa6h agoViolent clashes outside Azteca6h agoEmpty seats highlight fears over ticket pricing7h agoPreamble',
+      },
+      { type: 'paragraph', text: 'Republic of Ireland to face Israel in neutral country' },
+      { type: 'paragraph', text: 'Kenny Jackett dies, aged 64' },
+      { type: 'paragraph', text: 'Empty seats highlight fears over ticket pricing' },
+      {
+        type: 'paragraph',
+        text: 'Pro-tip in this article: Telemundo, the World Cup’s Spanish-language broadcaster in the US, did not cut away to full-screen advertising during the hydration breaks.',
+      },
+    ],
+  });
+
+  assert.equal(layout.bodyBlocks.length, 0);
+});

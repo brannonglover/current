@@ -6,8 +6,14 @@ import { Article } from '@/types';
 const FEED_SNAPSHOT_PREFIX = '@dailyfold/feed/';
 export const MAX_FEED_SNAPSHOT_ARTICLES = 80;
 
+const memorySnapshots = new Map<string, Article[]>();
+
 function feedSnapshotKey(userId: string, sourceIdsKey: string): string {
   return `${FEED_SNAPSHOT_PREFIX}${userId}/${sourceIdsKey}`;
+}
+
+function memoryKey(userId: string, sourceIdsKey: string): string {
+  return `${userId}/${sourceIdsKey}`;
 }
 
 /** Trim and strip bodies before persisting — full body loads in the reader. */
@@ -19,12 +25,19 @@ export async function loadFeedSnapshot(
   userId: string,
   sourceIdsKey: string,
 ): Promise<Article[] | null> {
+  const cached = memorySnapshots.get(memoryKey(userId, sourceIdsKey));
+  if (cached && cached.length > 0) return cached;
+
   const raw = await AsyncStorage.getItem(feedSnapshotKey(userId, sourceIdsKey));
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return null;
-    return parsed as Article[];
+    const articles = parsed as Article[];
+    if (articles.length > 0) {
+      memorySnapshots.set(memoryKey(userId, sourceIdsKey), articles);
+    }
+    return articles;
   } catch {
     return null;
   }
@@ -36,8 +49,10 @@ export async function saveFeedSnapshot(
   articles: Article[],
 ): Promise<void> {
   if (articles.length === 0) return;
+  const trimmed = trimFeedSnapshot(articles);
+  memorySnapshots.set(memoryKey(userId, sourceIdsKey), trimmed);
   await AsyncStorage.setItem(
     feedSnapshotKey(userId, sourceIdsKey),
-    JSON.stringify(trimFeedSnapshot(articles)),
+    JSON.stringify(trimmed),
   );
 }

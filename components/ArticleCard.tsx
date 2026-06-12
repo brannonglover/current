@@ -292,7 +292,7 @@ function NewspaperOverlayCard({
                     : styles.newspaperTextPanelCompact,
               ]}>
               <View style={styles.newspaperMetaRow}>
-                <View style={isCompact ? styles.newspaperMetaSource : undefined}>
+                <View style={styles.newspaperMetaSource}>
                   <ArticleSourceMenu article={article} bottomOffset={TAB_BAR_HEIGHT} tone="onImage" />
                 </View>
                 <View style={styles.metaEnd}>
@@ -392,7 +392,9 @@ export function ArticleCard({
 
         <View style={[styles.textBlock, { paddingBottom: VIGNETTE_TEXT_CLEARANCE }]}>
           <View style={styles.metaRow}>
-            <ArticleSourceMenu article={article} bottomOffset={TAB_BAR_HEIGHT} />
+            <View style={styles.metaSource}>
+              <ArticleSourceMenu article={article} bottomOffset={TAB_BAR_HEIGHT} />
+            </View>
             <View style={styles.metaEnd}>
               {requiresSubscription ? <SubscriptionBadge /> : null}
               <Text style={[styles.meta, { color: colors.textSecondary }]}>
@@ -554,6 +556,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
     flexShrink: 0,
+    gap: 8,
+  },
+  metaSource: {
+    flex: 1,
+    minWidth: 0,
   },
   metaEnd: {
     flexDirection: 'row',
@@ -666,9 +673,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   newspaperMetaSource: {
-    flexShrink: 1,
+    flex: 1,
     minWidth: 0,
-    alignSelf: 'flex-start',
   },
   newspaperMeta: {
     fontFamily: 'Inter',

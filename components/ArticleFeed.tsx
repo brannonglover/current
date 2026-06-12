@@ -92,7 +92,7 @@ interface ArticleFeedProps {
   headerExtra?: React.ReactNode;
   pendingCount?: number;
   pendingRefreshHint?: string;
-  onApplyPending?: () => void;
+  onApplyPending?: () => void | Promise<void>;
   onDismissPending?: () => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
@@ -559,7 +559,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
     if (pendingCount <= 0 || !onApplyPending) return;
     void (async () => {
       await scrollToTop();
-      onApplyPending();
+      await onApplyPending();
     })();
   }, [pendingCount, onApplyPending, scrollToTop]);
 

@@ -36,10 +36,16 @@ export function ArticleSourceMenu({
             tone === 'onImage' && styles.sourceOnImage,
             { color: accentColor },
           ]}
-          numberOfLines={1}>
+          numberOfLines={1}
+          ellipsizeMode="tail">
           {article.source}
         </Text>
-        <Ionicons name="chevron-down" size={13} color={accentColor} />
+        <Ionicons
+          name="chevron-down"
+          size={13}
+          color={accentColor}
+          style={styles.chevron}
+        />
       </Pressable>
 
       <NotForMeModal
@@ -56,10 +62,9 @@ const styles = StyleSheet.create({
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
+    flex: 1,
+    minWidth: 0,
     gap: 3,
-    flexShrink: 1,
-    maxWidth: '100%',
     paddingVertical: 6,
     paddingHorizontal: 4,
     marginVertical: -6,
@@ -69,10 +74,14 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   source: {
+    flex: 1,
+    minWidth: 0,
     fontFamily: 'InterSemiBold',
     fontSize: 13,
     letterSpacing: 0.3,
-    flexShrink: 1,
+  },
+  chevron: {
+    flexShrink: 0,
   },
   sourceOnImage: {
     textShadowColor: 'rgba(0,0,0,0.75)',

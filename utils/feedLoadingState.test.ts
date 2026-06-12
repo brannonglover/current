@@ -35,6 +35,19 @@ test('shouldShowArticleFeedLoading stays true until hydration and fetch settle',
   );
 });
 
+test('shouldShowArticleFeedLoading stays true while background ingest is pending', () => {
+  assert.equal(
+    shouldShowArticleFeedLoading({
+      articleCount: 0,
+      isLoading: false,
+      feedReady: true,
+      persistedHydrated: true,
+      awaitingBackgroundFeed: true,
+    }),
+    true,
+  );
+});
+
 test('shouldShowArticleFeedLoading is false when cached articles are available', () => {
   assert.equal(
     shouldShowArticleFeedLoading({

@@ -1,3 +1,4 @@
+import { filterGuardianLiveBlogArtifacts } from '@/catalog/guardianLiveBlogSidebar';
 import { articleImageUrlsMatch } from '@/constants/images';
 import { Article } from '@/types';
 import { ArticleReaderBlock } from '@/types/articleContent';
@@ -101,7 +102,7 @@ export function resolveReaderBlockLayout(params: {
   const excerpt = article.excerpt.trim();
   const feedBlocks = feedBlocksFromArticle(article);
 
-  const blocks = extractedBlocks ?? feedBlocks;
+  const blocks = filterGuardianLiveBlogArtifacts(extractedBlocks ?? feedBlocks);
 
   let layout: ReaderBlockLayout;
 

@@ -1,6 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 
+import { filterGuardianLiveBlogArtifacts } from '../../catalog/guardianLiveBlogSidebar';
 import {
   isArticlePlaceholderImageUrl,
   isPlaceholderImageElement,
@@ -399,10 +400,12 @@ export async function extractReaderContent(article: Article): Promise<ReaderCont
 
     if (!parsed?.content) return feedFallback();
 
-    const blocks = supplementBlocksWithEmbeddedImages(
-      blocksFromHtml(parsed.content, article.url),
-      html,
-      article.url,
+    const blocks = filterGuardianLiveBlogArtifacts(
+      supplementBlocksWithEmbeddedImages(
+        blocksFromHtml(parsed.content, article.url),
+        html,
+        article.url,
+      ),
     );
     if (blocks.length === 0) return feedFallback();
 

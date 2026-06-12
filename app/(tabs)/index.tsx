@@ -37,10 +37,12 @@ export default function LatestScreen() {
     pendingCount,
     dismissPendingArticles,
     refresh,
+    applyPending,
     loadMore,
   } = useArticles();
   const { preferences, filterFeedArticles, filterByEnabledSources } = usePreferences();
   const [displayArticles, setDisplayArticles] = useState<Article[]>([]);
+  const [displayReady, setDisplayReady] = useState(false);
   const prevFeedGenerationRef = useRef(0);
   const prevRawLengthRef = useRef(0);
   const prevFilterKeyRef = useRef('');
@@ -80,6 +82,13 @@ export default function LatestScreen() {
 
   useLayoutEffect(() => {
     syncDisplayHandledRef.current = false;
+    if (articles.length === 0) {
+      setDisplayArticles([]);
+      setDisplayReady(false);
+      prevRawLengthRef.current = 0;
+      return;
+    }
+
     const filteredArticles = filterFeedArticles(articles);
     const generationChanged = feedGeneration !== prevFeedGenerationRef.current;
     const listShrunk = articles.length < prevRawLengthRef.current;
@@ -100,6 +109,7 @@ export default function LatestScreen() {
       } else {
         setDisplayArticles((prev) => updateDisplayArticlesInPlace(prev, filteredArticles));
       }
+      setDisplayReady(true);
     } else if (articles.length > prevRawLengthRef.current) {
       syncDisplayHandledRef.current = true;
       setDisplayArticles((prev) => {
@@ -109,6 +119,7 @@ export default function LatestScreen() {
           orderLatestFeedPage(items, orderOpts),
         );
       });
+      setDisplayReady(true);
     }
 
     prevRawLengthRef.current = articles.length;
@@ -153,7 +164,11 @@ export default function LatestScreen() {
     shouldAllowSilentMerge,
   ]);
 
-  const filtered = displayArticles;
+  const filtered = useMemo(() => {
+    if (displayReady) return displayArticles;
+    if (articles.length === 0) return [];
+    return orderLatestFeed(filterFeedArticles(articles), orderOpts);
+  }, [displayReady, displayArticles, articles, filterFeedArticles, orderOpts]);
 
   const sourceFiltered = useMemo(
     () => filterByEnabledSources(articles),
@@ -197,6 +212,7 @@ export default function LatestScreen() {
       error={error}
       notice={notice}
       onRefresh={refresh}
+      onApplyPending={applyPending}
       onLoadMore={hasMore ? loadMore : undefined}
       isLoadingMore={isLoadingMore}
       loadMoreCursor={articles.length}

@@ -25,6 +25,7 @@ import {
   newcomersFromFeedMerge,
   updateExistingFeedArticles,
 } from '@/utils/mergeArticleFeed';
+import { hasActionablePending, pendingNotAlreadyInFeed } from '@/utils/pendingFeedArticles';
 
 interface UseArticlesResult {
   articles: Article[];
@@ -39,6 +40,7 @@ interface UseArticlesResult {
   notice: string | null;
   usingDemoArticles: boolean;
   refresh: () => Promise<void>;
+  applyPending: () => Promise<void>;
   loadMore: () => Promise<void>;
   dismissPendingArticles: () => void;
 }
@@ -103,6 +105,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   const [usingDemoArticles] = useState(false);
   const [persistedHydrated, setPersistedHydrated] = useState(false);
   const [hadPersistedFeed, setHadPersistedFeed] = useState(false);
+  const [awaitingBackgroundFeed, setAwaitingBackgroundFeed] = useState(false);
   const appState = useRef(AppState.currentState);
   const refreshInFlightRef = useRef(0);
   const loadMoreInFlightRef = useRef(false);
@@ -121,10 +124,10 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   articlesRef.current = articles;
   pendingArticlesRef.current = pendingArticles;
 
-  const pendingCount = useMemo(
-    () => applyFeedFilters(pendingArticles, preferences, sources).length,
-    [pendingArticles, preferences, sources],
-  );
+  const pendingCount = useMemo(() => {
+    const actionable = pendingNotAlreadyInFeed(pendingArticles, articles);
+    return applyFeedFilters(actionable, preferences, sources).length;
+  }, [pendingArticles, articles, preferences, sources]);
   const hasPendingArticles = pendingCount > 0;
 
   const sourceIds = useMemo(() => {
@@ -173,6 +176,11 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     ) => {
       if (generation !== fetchGenerationRef.current) return;
 
+      if (mode === 'silent' && articlesRef.current.length === 0) {
+        dismissedPendingIdsRef.current.clear();
+        setPendingArticles([]);
+      }
+
       if (mode === 'append') {
         setArticles((prev) => appendUniqueArticles(prev, data));
       } else if (mode === 'refresh') {
@@ -188,7 +196,9 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
               const dismissed = dismissedPendingIdsRef.current;
               const queueable = newcomers.filter((article) => !dismissed.has(article.id));
               if (queueable.length > 0) {
-                setPendingArticles((pending) => appendUniqueArticles(pending, queueable));
+                setPendingArticles((pending) =>
+                  pendingNotAlreadyInFeed(appendUniqueArticles(pending, queueable), prev),
+                );
               }
             }
             if (suppressSilentFeedMutationRef.current) {
@@ -227,6 +237,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
 
       if (data.length > 0) {
         setError(null);
+        setAwaitingBackgroundFeed(false);
       }
 
       if (meta?.ingestTriggered && !meta.ingestAwaited && data.length > 0) {
@@ -299,6 +310,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
                 continue;
               }
               if (mode === 'initial' && generation === fetchGenerationRef.current) {
+                setAwaitingBackgroundFeed(true);
                 scheduleGlobalSilentRefresh(0);
               }
               return;
@@ -315,6 +327,9 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
             if (generation !== fetchGenerationRef.current) return;
             if (mode === 'silent' || mode === 'append') {
               if (articlesRef.current.length > 0) setNotice(null);
+              if (mode === 'silent' && articlesRef.current.length === 0) {
+                setAwaitingBackgroundFeed(false);
+              }
               return;
             }
             if (articlesRef.current.length > 0) return;
@@ -346,9 +361,19 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) {
       setArticles([]);
+      setPendingArticles([]);
       setIsLoading(true);
       setPersistedHydrated(true);
       setHadPersistedFeed(false);
+      setAwaitingBackgroundFeed(false);
+      return;
+    }
+
+    if (preferencesLoading) {
+      setPersistedHydrated(false);
+      if (articlesRef.current.length === 0) {
+        setIsLoading(true);
+      }
       return;
     }
 
@@ -366,6 +391,8 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
         setArticles(snapshot.map(resolveArticleDisplayFields));
         setIsLoading(false);
         setHadPersistedFeed(true);
+        setAwaitingBackgroundFeed(false);
+        setNotice(null);
       } else {
         setHadPersistedFeed(false);
         if (articlesRef.current.length === 0) {
@@ -378,7 +405,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, sourceIdsKey]);
+  }, [user?.id, sourceIdsKey, preferencesLoading]);
 
   useEffect(() => {
     if (!feedReady || !persistedHydrated) return;
@@ -414,8 +441,16 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
   }, [sourceIdsKey]);
 
   const applyPendingArticles = useCallback(() => {
-    const pending = pendingArticlesRef.current;
-    if (pending.length === 0) return false;
+    const pending = pendingNotAlreadyInFeed(
+      pendingArticlesRef.current,
+      articlesRef.current,
+    );
+    if (pending.length === 0) {
+      if (pendingArticlesRef.current.length > 0) {
+        setPendingArticles([]);
+      }
+      return false;
+    }
 
     fetchGenerationRef.current += 1;
     cancelScheduledSilentRefresh();
@@ -434,11 +469,41 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [user, sourceIdsKey]);
 
+  const runWithRefreshIndicator = useCallback(async (action: () => boolean) => {
+    refreshInFlightRef.current += 1;
+    setIsRefreshing(true);
+    try {
+      return action();
+    } finally {
+      refreshInFlightRef.current -= 1;
+      if (refreshInFlightRef.current <= 0) {
+        refreshInFlightRef.current = 0;
+        setIsRefreshing(false);
+      }
+    }
+  }, []);
+
+  const applyPending = useCallback(async () => {
+    if (!hasActionablePending(pendingArticlesRef.current, articlesRef.current)) {
+      if (pendingArticlesRef.current.length > 0) {
+        setPendingArticles([]);
+      }
+      return;
+    }
+    await runWithRefreshIndicator(applyPendingArticles);
+  }, [applyPendingArticles, runWithRefreshIndicator]);
+
   const refresh = useCallback(async () => {
-    if (applyPendingArticles()) return;
+    if (hasActionablePending(pendingArticlesRef.current, articlesRef.current)) {
+      await runWithRefreshIndicator(applyPendingArticles);
+      return;
+    }
+    if (pendingArticlesRef.current.length > 0) {
+      setPendingArticles([]);
+    }
     suppressSilentFeedMutationRef.current = false;
     await load('refresh', true);
-  }, [applyPendingArticles, load]);
+  }, [applyPendingArticles, load, runWithRefreshIndicator]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !nextCursor || loadMoreInFlightRef.current) return;
@@ -457,11 +522,19 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
     setPendingArticles([]);
   }, []);
 
+  useEffect(() => {
+    setPendingArticles((pending) => {
+      const pruned = pendingNotAlreadyInFeed(pending, articles);
+      return pruned.length === pending.length ? pending : pruned;
+    });
+  }, [articles]);
+
   const showLoading = shouldShowArticleFeedLoading({
     articleCount: articles.length,
     isLoading,
     feedReady,
     persistedHydrated,
+    awaitingBackgroundFeed,
   });
 
   const value = useMemo(
@@ -478,6 +551,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
       notice,
       usingDemoArticles,
       refresh,
+      applyPending,
       loadMore,
       dismissPendingArticles,
     }),
@@ -494,6 +568,7 @@ export function ArticlesProvider({ children }: { children: React.ReactNode }) {
       notice,
       usingDemoArticles,
       refresh,
+      applyPending,
       loadMore,
       dismissPendingArticles,
     ],

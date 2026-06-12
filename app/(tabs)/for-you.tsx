@@ -33,11 +33,13 @@ export default function ForYouScreen() {
     pendingCount,
     dismissPendingArticles,
     refresh,
+    applyPending,
   } = useArticles();
 
   const likedArticlesReady = preferences != null;
   const userHasLikedArticles = likedArticlesReady && hasLikedArticles(preferences);
   const [displayArticles, setDisplayArticles] = useState<Article[]>([]);
+  const [displayReady, setDisplayReady] = useState(false);
   const prevFeedGenerationRef = useRef(0);
   const prevRawLengthRef = useRef(0);
   const syncDisplayHandledRef = useRef(false);
@@ -48,6 +50,7 @@ export default function ForYouScreen() {
     syncDisplayHandledRef.current = false;
     if (!userHasLikedArticles || !preferences) {
       setDisplayArticles([]);
+      setDisplayReady(false);
       prevRawLengthRef.current = 0;
       return;
     }
@@ -65,6 +68,7 @@ export default function ForYouScreen() {
       } else {
         setDisplayArticles((prev) => updateDisplayArticlesInPlace(prev, ranked));
       }
+      setDisplayReady(true);
     } else if (articles.length > prevRawLengthRef.current) {
       syncDisplayHandledRef.current = true;
       setDisplayArticles((prev) => {
@@ -72,6 +76,7 @@ export default function ForYouScreen() {
         const newOnly = ranked.filter((a) => !seen.has(a.id));
         return mergePaginatedDisplayFeed(prev, newOnly, ranked, orderPersonalizedFeed);
       });
+      setDisplayReady(true);
     }
 
     prevRawLengthRef.current = articles.length;
@@ -117,7 +122,20 @@ export default function ForYouScreen() {
     shouldAllowSilentMerge,
   ]);
 
-  const personalized = displayArticles;
+  const personalized = useMemo(() => {
+    if (!userHasLikedArticles || !preferences) return [];
+    if (displayReady) return displayArticles;
+    if (articles.length === 0) return [];
+    const filtered = filterFeedArticles(articles);
+    return orderPersonalizedFeed(getPersonalizedFeed(filtered, preferences));
+  }, [
+    displayReady,
+    displayArticles,
+    articles,
+    filterFeedArticles,
+    preferences,
+    userHasLikedArticles,
+  ]);
 
   const emptyMessage = useMemo(
     () => {
@@ -160,6 +178,7 @@ export default function ForYouScreen() {
       error={error}
       notice={notice}
       onRefresh={refresh}
+      onApplyPending={applyPending}
       pendingCount={pendingCount}
       onDismissPending={dismissPendingArticles}
     />
