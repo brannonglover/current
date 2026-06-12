@@ -106,17 +106,14 @@ export function resolveReaderBlockLayout(params: {
   let layout: ReaderBlockLayout;
 
   if (!extractedBlocks) {
-    const feedLede = excerpt || null;
-    layout = {
-      feedLede,
-      bodyBlocks: feedLede ? dedupeLeadingParagraph(blocks, feedLede) : blocks,
-    };
+    layout = { feedLede: null, bodyBlocks: blocks };
   } else {
     const firstText = firstParagraphText(blocks);
     if (excerpt && firstText && excerptMatchesArticleLede(firstText, excerpt)) {
+      const bodyBlocks = dedupeLeadingParagraph(blocks, excerpt);
       layout = {
-        feedLede: excerpt,
-        bodyBlocks: dedupeLeadingParagraph(blocks, excerpt),
+        feedLede: bodyBlocks.length > 0 ? excerpt : null,
+        bodyBlocks: bodyBlocks.length > 0 ? bodyBlocks : blocks,
       };
     } else {
       layout = { feedLede: null, bodyBlocks: blocks };

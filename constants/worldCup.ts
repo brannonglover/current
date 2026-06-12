@@ -13,6 +13,9 @@ export const WORLD_CUP_SCOREBOARD_URL =
 export const WORLD_CUP_STANDINGS_URL =
   'https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings';
 
+export const WORLD_CUP_SUMMARY_URL =
+  'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary';
+
 export const WORLD_CUP_NEWS_FEEDS = [
   {
     id: 'bbc',

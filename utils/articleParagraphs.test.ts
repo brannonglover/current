@@ -156,6 +156,58 @@ run('resolveReaderBlockLayout removes NPR Brightspot body image matching feed he
   );
 });
 
+run('resolveReaderBlockLayout shows feed excerpt as body when extraction is missing', () => {
+  const excerpt =
+    "'Luca' director Enrico Casarosa returns with another Italy-set tale, hitting theaters March 5, 2027.";
+  const article = {
+    id: 'gatto',
+    title: "Pixar's Kitty Adventure 'Gatto' Looks Purrfectly Delightful",
+    excerpt,
+    body: '',
+    source: 'Gizmodo',
+    imageUrl: 'https://example.com/hero.jpg',
+    topics: ['movies'],
+    readTimeMinutes: 3,
+    publishedAt: '2026-06-10T12:00:00.000Z',
+    url: 'https://gizmodo.com/gatto-trailer-pixar-movie-film-animated-2000770681',
+  } satisfies Article;
+
+  const layout = resolveReaderBlockLayout({ article, extractedBlocks: null });
+
+  assert.equal(layout.feedLede, null);
+  assert.equal(layout.bodyBlocks.length, 1);
+  assert.equal(layout.bodyBlocks[0]?.type, 'paragraph');
+  assert.equal(
+    layout.bodyBlocks[0]?.type === 'paragraph' ? layout.bodyBlocks[0].text : '',
+    excerpt,
+  );
+});
+
+run('resolveReaderBlockLayout avoids empty body when cached feed fallback matches excerpt', () => {
+  const excerpt =
+    "'Luca' director Enrico Casarosa returns with another Italy-set tale, hitting theaters March 5, 2027.";
+  const article = {
+    id: 'gatto',
+    title: "Pixar's Kitty Adventure 'Gatto' Looks Purrfectly Delightful",
+    excerpt,
+    body: '',
+    source: 'Gizmodo',
+    imageUrl: 'https://example.com/hero.jpg',
+    topics: ['movies'],
+    readTimeMinutes: 3,
+    publishedAt: '2026-06-10T12:00:00.000Z',
+    url: 'https://gizmodo.com/gatto-trailer-pixar-movie-film-animated-2000770681',
+  } satisfies Article;
+
+  const layout = resolveReaderBlockLayout({
+    article,
+    extractedBlocks: [{ type: 'paragraph', text: excerpt }],
+  });
+
+  assert.equal(layout.feedLede, null);
+  assert.equal(layout.bodyBlocks.length, 1);
+});
+
 run('resolveReaderBlockLayout keeps leading body image when article has no hero', () => {
   const article = {
     id: '3',

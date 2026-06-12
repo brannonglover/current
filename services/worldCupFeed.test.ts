@@ -4,6 +4,7 @@ import {
   hasLiveMatches,
   parseEspnBracket,
   parseEspnBracketCalendar,
+  parseEspnMatchHalfScores,
   parseEspnScoreboard,
   parseEspnStandings,
   parseWorldCupRss,
@@ -41,19 +42,46 @@ const SAMPLE_SCOREBOARD = {
               score: '0',
               winner: false,
               team: {
+                id: '203',
                 displayName: 'Mexico',
                 abbreviation: 'MEX',
                 logos: [{ href: 'https://example.com/mex.png' }],
               },
+              statistics: [
+                { name: 'possessionPct', displayValue: '60.5' },
+                { name: 'totalShots', displayValue: '16' },
+                { name: 'shotsOnTarget', displayValue: '4' },
+                { name: 'foulsCommitted', displayValue: '12' },
+                { name: 'wonCorners', displayValue: '3' },
+              ],
             },
             {
               homeAway: 'away',
               score: '0',
               winner: false,
               team: {
+                id: '467',
                 displayName: 'South Africa',
                 abbreviation: 'RSA',
               },
+              statistics: [
+                { name: 'possessionPct', displayValue: '39.5' },
+                { name: 'totalShots', displayValue: '3' },
+              ],
+            },
+          ],
+          details: [
+            {
+              type: { text: 'Goal' },
+              clock: { displayValue: "9'" },
+              team: { id: '203' },
+              athletesInvolved: [{ displayName: 'Julián Quiñones' }],
+            },
+            {
+              type: { text: 'Yellow Card' },
+              clock: { displayValue: "17'" },
+              team: { id: '467' },
+              athletesInvolved: [{ displayName: 'Teboho Mokoena' }],
             },
           ],
         },
@@ -115,6 +143,45 @@ run('parseEspnScoreboard maps teams and sorts by kickoff', () => {
   assert.equal(matches[1]?.venue, 'Estadio Banorte');
   assert.equal(matches[0]?.isFinal, true);
   assert.equal(matches[1]?.isLive, false);
+});
+
+run('parseEspnScoreboard maps match events and team stats', () => {
+  const matches = parseEspnScoreboard(SAMPLE_SCOREBOARD);
+  const mexicoMatch = matches.find((match) => match.id === '760415');
+  assert.equal(mexicoMatch?.events?.length, 2);
+  assert.equal(mexicoMatch?.events?.[0]?.type, 'Goal');
+  assert.equal(mexicoMatch?.events?.[0]?.playerName, 'Julián Quiñones');
+  assert.equal(mexicoMatch?.events?.[0]?.side, 'home');
+  assert.equal(mexicoMatch?.events?.[1]?.side, 'away');
+  assert.equal(mexicoMatch?.teamStats?.home.possession, '60.5%');
+  assert.equal(mexicoMatch?.teamStats?.home.shots, '16');
+  assert.equal(mexicoMatch?.teamStats?.away.shots, '3');
+});
+
+run('parseEspnMatchHalfScores maps half-by-half linescores', () => {
+  const halfScores = parseEspnMatchHalfScores({
+    header: {
+      competitions: [
+        {
+          competitors: [
+            {
+              homeAway: 'home',
+              linescores: [{ displayValue: '1' }, { displayValue: '1' }],
+            },
+            {
+              homeAway: 'away',
+              linescores: [{ displayValue: '0' }, { displayValue: '0' }],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  assert.equal(halfScores.length, 2);
+  assert.equal(halfScores[0]?.label, '1st Half');
+  assert.equal(halfScores[0]?.home, '1');
+  assert.equal(halfScores[0]?.away, '0');
+  assert.equal(halfScores[1]?.home, '1');
 });
 
 run('parseWorldCupRss extracts title, link, excerpt, and thumbnail', () => {

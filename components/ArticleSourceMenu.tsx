@@ -56,11 +56,14 @@ const styles = StyleSheet.create({
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 3,
     flexShrink: 1,
     maxWidth: '100%',
-    paddingVertical: 2,
-    marginVertical: -2,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    marginVertical: -6,
+    marginHorizontal: -4,
   },
   triggerPressed: {
     opacity: 0.72,

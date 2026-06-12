@@ -288,6 +288,73 @@ function feedBlocks(article: Article): ReaderBlock[] {
   return [];
 }
 
+function normalizeParagraphText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[''`]/g, "'")
+    .replace(/[""]/g, '"')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s'"]/gu, '')
+    .trim();
+}
+
+function paragraphsSubstantiallyMatch(a: string, b: string): boolean {
+  const left = normalizeParagraphText(a);
+  const right = normalizeParagraphText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (left.includes(right) || right.includes(left)) return true;
+
+  const wordsLeft = left.split(' ').filter((word) => word.length > 2);
+  const wordsRight = new Set(right.split(' ').filter((word) => word.length > 2));
+  if (wordsLeft.length === 0 || wordsRight.size === 0) return false;
+
+  let overlap = 0;
+  for (const word of wordsLeft) {
+    if (wordsRight.has(word)) overlap += 1;
+  }
+
+  const minSize = Math.min(wordsLeft.length, wordsRight.size);
+  return overlap / minSize >= 0.85;
+}
+
+/** True when cached blocks add nothing beyond RSS feed body/excerpt (e.g. failed extraction saved as extracted). */
+export function readerContentNoBetterThanFeed(
+  blocks: ReaderBlock[],
+  article: Article,
+): boolean {
+  if (blocks.length === 0) return true;
+
+  const hasMedia = blocks.some((block) => block.type === 'video' || block.type === 'image');
+  if (hasMedia) return false;
+
+  const cachedText = blocks
+    .filter((block): block is Extract<ReaderBlock, { type: 'paragraph' }> => block.type === 'paragraph')
+    .map((block) => block.text);
+  const feedText = feedBlocks(article)
+    .filter((block): block is Extract<ReaderBlock, { type: 'paragraph' }> => block.type === 'paragraph')
+    .map((block) => block.text);
+
+  if (feedText.length === 0) return false;
+  if (cachedText.length > feedText.length) return false;
+
+  return cachedText.every(
+    (text, index) => feedText[index] && paragraphsSubstantiallyMatch(text, feedText[index]!),
+  );
+}
+
+export function isUsableExtractedReaderCache(
+  cached: ReaderContent,
+  article: Article,
+  options?: { legacyTextOnlyFormat?: boolean },
+): boolean {
+  if (cached.source !== 'extracted') return false;
+  if (cached.blocks.length === 0) return false;
+  if (options?.legacyTextOnlyFormat) return false;
+  if (readerContentNoBetterThanFeed(cached.blocks, article)) return false;
+  return true;
+}
+
 async function fetchPageHtml(url: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

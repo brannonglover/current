@@ -6,6 +6,7 @@ import {
   WORLD_CUP_SCOREBOARD_DAYS,
   WORLD_CUP_SCOREBOARD_URL,
   WORLD_CUP_STANDINGS_URL,
+  WORLD_CUP_SUMMARY_URL,
 } from '@/constants/worldCup';
 
 export interface WorldCupMatchTeam {
@@ -14,6 +15,30 @@ export interface WorldCupMatchTeam {
   score: string;
   logoUrl?: string;
   winner: boolean;
+}
+
+export interface WorldCupMatchEvent {
+  type: string;
+  clock: string;
+  playerName?: string;
+  side: 'home' | 'away';
+  isPenalty: boolean;
+  isOwnGoal: boolean;
+  isShootout: boolean;
+}
+
+export interface WorldCupTeamStats {
+  possession?: string;
+  shots?: string;
+  shotsOnTarget?: string;
+  fouls?: string;
+  corners?: string;
+}
+
+export interface WorldCupHalfScore {
+  label: string;
+  home: string;
+  away: string;
 }
 
 export interface WorldCupMatch {
@@ -27,6 +52,11 @@ export interface WorldCupMatch {
   roundSlug?: string;
   home: WorldCupMatchTeam;
   away: WorldCupMatchTeam;
+  events?: WorldCupMatchEvent[];
+  teamStats?: {
+    home: WorldCupTeamStats;
+    away: WorldCupTeamStats;
+  };
 }
 
 export interface WorldCupBracketRound {
@@ -117,6 +147,32 @@ interface EspnCompetition {
   venue?: { fullName?: string };
   status?: { type?: EspnStatusType };
   competitors?: EspnCompetitor[];
+  details?: EspnMatchDetail[];
+}
+
+interface EspnMatchDetail {
+  type?: { text?: string };
+  clock?: { displayValue?: string };
+  team?: { id?: string };
+  penaltyKick?: boolean;
+  ownGoal?: boolean;
+  shootout?: boolean;
+  athletesInvolved?: { displayName?: string }[];
+}
+
+interface EspnLinescore {
+  displayValue?: string;
+}
+
+interface EspnSummaryResponse {
+  header?: {
+    competitions?: {
+      competitors?: {
+        homeAway?: string;
+        linescores?: EspnLinescore[];
+      }[];
+    }[];
+  };
 }
 
 interface EspnStatusType {
@@ -132,10 +188,12 @@ interface EspnCompetitor {
   score?: string;
   winner?: boolean;
   team?: {
+    id?: string;
     displayName?: string;
     abbreviation?: string;
     logos?: { href?: string }[];
   };
+  statistics?: { name?: string; displayValue?: string }[];
 }
 
 interface EspnStandingEntry {
@@ -199,6 +257,88 @@ function teamFromCompetitor(competitor: EspnCompetitor): WorldCupMatchTeam {
   };
 }
 
+function competitorStat(competitor: EspnCompetitor, name: string): string | undefined {
+  const stat = competitor.statistics?.find((item) => item.name === name);
+  const value = stat?.displayValue?.trim();
+  return value || undefined;
+}
+
+function teamStatsFromCompetitor(competitor: EspnCompetitor): WorldCupTeamStats {
+  const possession = competitorStat(competitor, 'possessionPct');
+  return {
+    possession: possession ? `${possession}%` : undefined,
+    shots: competitorStat(competitor, 'totalShots'),
+    shotsOnTarget: competitorStat(competitor, 'shotsOnTarget'),
+    fouls: competitorStat(competitor, 'foulsCommitted'),
+    corners: competitorStat(competitor, 'wonCorners'),
+  };
+}
+
+function hasTeamStats(stats: WorldCupTeamStats): boolean {
+  return Object.values(stats).some((value) => value !== undefined);
+}
+
+const HALF_SCORE_LABELS = ['1st Half', '2nd Half', 'Extra Time', 'Penalties'] as const;
+
+function parseMatchEvents(
+  details: EspnMatchDetail[] | undefined,
+  homeTeamId: string | undefined,
+  awayTeamId: string | undefined,
+): WorldCupMatchEvent[] {
+  const events: WorldCupMatchEvent[] = [];
+
+  for (const detail of details ?? []) {
+    const type = detail.type?.text?.trim();
+    const clock = detail.clock?.displayValue?.trim();
+    if (!type || !clock) continue;
+
+    const teamId = detail.team?.id;
+    let side: 'home' | 'away' = 'home';
+    if (teamId && awayTeamId && teamId === awayTeamId) {
+      side = 'away';
+    } else if (teamId && homeTeamId && teamId !== homeTeamId) {
+      side = 'away';
+    }
+
+    events.push({
+      type,
+      clock,
+      playerName: detail.athletesInvolved?.[0]?.displayName?.trim(),
+      side,
+      isPenalty: detail.penaltyKick === true,
+      isOwnGoal: detail.ownGoal === true,
+      isShootout: detail.shootout === true,
+    });
+  }
+
+  return events;
+}
+
+/** Parse half-by-half scores from the ESPN match summary header. */
+export function parseEspnMatchHalfScores(data: EspnSummaryResponse): WorldCupHalfScore[] {
+  const competitors = data.header?.competitions?.[0]?.competitors ?? [];
+  const home = competitors.find((competitor) => competitor.homeAway === 'home');
+  const away = competitors.find((competitor) => competitor.homeAway === 'away');
+  if (!home?.linescores?.length || !away?.linescores?.length) return [];
+
+  const halfCount = Math.min(home.linescores.length, away.linescores.length);
+  const halfScores: WorldCupHalfScore[] = [];
+
+  for (let index = 0; index < halfCount; index += 1) {
+    const homeScore = home.linescores[index]?.displayValue?.trim();
+    const awayScore = away.linescores[index]?.displayValue?.trim();
+    if (homeScore === undefined || awayScore === undefined) continue;
+
+    halfScores.push({
+      label: HALF_SCORE_LABELS[index] ?? `Period ${index + 1}`,
+      home: homeScore,
+      away: awayScore,
+    });
+  }
+
+  return halfScores;
+}
+
 function matchFromEvent(event: EspnEvent): WorldCupMatch | null {
   const competition = event.competitions?.[0];
   if (!competition) return null;
@@ -213,6 +353,14 @@ function matchFromEvent(event: EspnEvent): WorldCupMatch | null {
   const isLive = state === 'in';
   const isFinal = state === 'post' || status.completed === true;
 
+  const homeStats = teamStatsFromCompetitor(homeComp);
+  const awayStats = teamStatsFromCompetitor(awayComp);
+  const events = parseMatchEvents(
+    competition.details,
+    homeComp.team?.id,
+    awayComp.team?.id,
+  );
+
   return {
     id: event.id,
     startTime: event.date,
@@ -224,6 +372,11 @@ function matchFromEvent(event: EspnEvent): WorldCupMatch | null {
     roundSlug: event.season?.slug,
     home: teamFromCompetitor(homeComp),
     away: teamFromCompetitor(awayComp),
+    events: events.length > 0 ? events : undefined,
+    teamStats:
+      hasTeamStats(homeStats) || hasTeamStats(awayStats)
+        ? { home: homeStats, away: awayStats }
+        : undefined,
   };
 }
 
@@ -472,6 +625,17 @@ export function sortMatchesForScores(matches: WorldCupMatch[]): WorldCupMatch[] 
     if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
     return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
   });
+}
+
+/** Load half-by-half scores for a fixture (ESPN summary API). */
+export async function fetchWorldCupMatchHalfScores(matchId: string): Promise<WorldCupHalfScore[]> {
+  const url = `${WORLD_CUP_SUMMARY_URL}?event=${encodeURIComponent(matchId)}`;
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) {
+    throw new Error(`Match summary unavailable (HTTP ${response.status})`);
+  }
+  const data = (await response.json()) as EspnSummaryResponse;
+  return parseEspnMatchHalfScores(data);
 }
 
 /** Load scores, bracket, and news for the temporary World Cup tab. */

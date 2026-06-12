@@ -1,9 +1,16 @@
 import { NextRequest } from 'next/server';
 
 import { corsHeaders, jsonResponse } from '@/lib/cors';
-import { getArticleById, getCachedReaderContent, saveReaderContent, setArticleRequiresSubscription } from '@/lib/db';
-import { extractReaderContent } from '@/lib/extract';
+import {
+  getArticleById,
+  getCachedReaderContent,
+  saveReaderContent,
+  setArticleRequiresSubscription,
+  updateArticleImageUrl,
+} from '@/lib/db';
+import { extractReaderContent, isUsableExtractedReaderCache } from '@/lib/extract';
 import { FEEDS } from '@/lib/feeds';
+import { articleNeedsHeroEnrichment, fetchPageOgImageUrl } from '@/lib/ogImage';
 import { detectRequiresSubscriptionFromExtraction } from '@/lib/subscription';
 
 export async function OPTIONS(request: NextRequest) {
@@ -29,12 +36,20 @@ export async function GET(
 
     if (!refresh) {
       const cached = getCachedReaderContent(id);
-      if (cached && cached.blocks.length > 0 && !cached.legacyTextOnlyFormat) {
+      if (cached && isUsableExtractedReaderCache(cached, article, { legacyTextOnlyFormat: cached.legacyTextOnlyFormat })) {
         const { legacyTextOnlyFormat: _legacy, ...content } = cached;
         return jsonResponse(
           { content, requiresSubscription: article.requiresSubscription },
           origin,
         );
+      }
+    }
+
+    if (articleNeedsHeroEnrichment(article.imageUrl)) {
+      const heroUrl = await fetchPageOgImageUrl(article.url);
+      if (heroUrl) {
+        updateArticleImageUrl(id, heroUrl);
+        article = { ...article, imageUrl: heroUrl };
       }
     }
 
@@ -56,7 +71,9 @@ export async function GET(
       article = { ...article, requiresSubscription: true };
     }
 
-    saveReaderContent(id, extracted);
+    if (extracted.source === 'extracted') {
+      saveReaderContent(id, extracted);
+    }
 
     return jsonResponse({ content: extracted, requiresSubscription: article.requiresSubscription }, origin);
   } catch (error) {

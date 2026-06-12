@@ -10,6 +10,10 @@ import {
   setLastIngestAt,
   upsertArticle,
 } from './db';
+import {
+  augmentFeedItemMediaFromXml,
+  extractItemMediaFromFeedXml,
+} from './feedMedia';
 import { FEEDS } from './feeds';
 import { normalizeFeedItem } from './normalize';
 import { enrichArticlesMissingHeroImages } from './ogImage';
@@ -155,7 +159,8 @@ export async function ingestFeeds(): Promise<IngestResult> {
       const timeoutMs = feed.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
       const xml = await fetchFeedXmlWithTlsFallback(feed.url, timeoutMs);
       const parsed = await createParser(timeoutMs).parseString(xml);
-      return { feed, parsed };
+      const mediaByKey = extractItemMediaFromFeedXml(xml);
+      return { feed, parsed, mediaByKey };
     }),
   );
 
@@ -173,10 +178,11 @@ export async function ingestFeeds(): Promise<IngestResult> {
       continue;
     }
 
-    const { parsed } = feedResult.value;
+    const { parsed, mediaByKey } = feedResult.value;
     result.feedsProcessed += 1;
 
     for (const item of parsed.items.slice(0, ITEMS_PER_FEED)) {
+      augmentFeedItemMediaFromXml(item, mediaByKey);
       result.itemsSeen += 1;
       const normalized = normalizeFeedItem(item, feed);
       if (!normalized) continue;

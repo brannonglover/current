@@ -1,16 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useEventListener } from 'expo';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
 import { useTheme } from '@/hooks/useTheme';
 import { ARTICLE_NO_IMAGE, isArticlePlaceholderImageUrl, resolveArticleImageUrl } from '@/constants/images';
 import { ArticleReaderBlock } from '@/types/articleContent';
 import { openPublisherArticle } from '@/utils/openPublisherBrowser';
+import {
+  buildVimeoEmbedSource,
+  buildYouTubeEmbedSource,
+  extractYouTubeVideoId,
+  isYouTubePlaybackUrl,
+  WEB_EMBED_PLAY_MESSAGE,
+} from '@/utils/youtubeEmbed';
 
 type VideoBlock = Extract<ArticleReaderBlock, { type: 'video' }>;
+
+type WebEmbedSource = { html: string; baseUrl: string } | { uri: string };
 
 function providerLabel(provider?: string): string {
   if (provider === 'youtube') return 'YouTube';
@@ -23,35 +34,173 @@ function usesWebEmbed(provider?: string): boolean {
 }
 
 function DirectVideoPlayer({ url }: { url: string }) {
+  const videoRef = useRef<VideoView>(null);
+  const isFullscreenRef = useRef(false);
   const player = useVideoPlayer(url, (instance) => {
     instance.loop = false;
   });
 
+  useEventListener(player, 'playingChange', ({ isPlaying }) => {
+    if (isPlaying && !isFullscreenRef.current) {
+      void videoRef.current?.enterFullscreen();
+    }
+  });
+
   return (
     <VideoView
+      ref={videoRef}
       player={player}
       style={styles.player}
       contentFit="contain"
       nativeControls
       allowsFullscreen
       allowsPictureInPicture
+      onFullscreenEnter={() => {
+        isFullscreenRef.current = true;
+      }}
+      onFullscreenExit={() => {
+        isFullscreenRef.current = false;
+      }}
     />
   );
 }
 
-function EmbedVideoPlayer({ url }: { url: string }) {
+const WEBVIEW_EMBED_PROPS = {
+  allowsFullscreenVideo: true,
+  allowsInlineMediaPlayback: true,
+  mediaPlaybackRequiresUserAction: false,
+  javaScriptEnabled: true,
+  domStorageEnabled: true,
+  scrollEnabled: false,
+  setSupportMultipleWindows: false,
+  sharedCookiesEnabled: true,
+  thirdPartyCookiesEnabled: true,
+  originWhitelist: ['*'],
+};
+
+const FULLSCREEN_WEBVIEW_PROPS = {
+  ...WEBVIEW_EMBED_PROPS,
+  allowsInlineMediaPlayback: false,
+};
+
+function toWebViewSource(source: WebEmbedSource) {
+  return 'html' in source ? { html: source.html, baseUrl: source.baseUrl } : source;
+}
+
+function FullscreenWebViewModal({
+  visible,
+  onClose,
+  source,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  source: WebEmbedSource | null;
+}) {
+  const insets = useSafeAreaInsets();
+
+  if (!source) return null;
+
   return (
-    <WebView
-      source={{ uri: url }}
-      style={styles.player}
-      allowsFullscreenVideo
-      allowsInlineMediaPlayback
-      mediaPlaybackRequiresUserAction={false}
-      javaScriptEnabled
-      domStorageEnabled
-      scrollEnabled={false}
-      originWhitelist={['*']}
-    />
+    <Modal
+      visible={visible}
+      animationType="fade"
+      presentationStyle="fullScreen"
+      supportedOrientations={['portrait', 'landscape']}
+      onRequestClose={onClose}>
+      <View style={styles.fullscreenRoot}>
+        <WebView
+          source={toWebViewSource(source)}
+          style={styles.fullscreenPlayer}
+          {...FULLSCREEN_WEBVIEW_PROPS}
+        />
+        <Pressable
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close video"
+          style={({ pressed }) => [
+            styles.fullscreenClose,
+            { top: insets.top + 8 },
+            pressed && { opacity: 0.7 },
+          ]}>
+          <Ionicons name="close" size={28} color="#fff" />
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+function useFullscreenWebEmbed(inlineSource: WebEmbedSource | null, fullscreenSource: WebEmbedSource | null) {
+  const [fullscreenVisible, setFullscreenVisible] = useState(false);
+
+  const handlePlayMessage = (data: string) => {
+    if (data !== WEB_EMBED_PLAY_MESSAGE || !fullscreenSource) return;
+    setFullscreenVisible(true);
+  };
+
+  return {
+    fullscreenVisible,
+    closeFullscreen: () => setFullscreenVisible(false),
+    handlePlayMessage,
+    modal: (
+      <FullscreenWebViewModal
+        visible={fullscreenVisible}
+        onClose={() => setFullscreenVisible(false)}
+        source={fullscreenSource}
+      />
+    ),
+    webViewProps: inlineSource
+      ? {
+          source: toWebViewSource(inlineSource),
+          onMessage: (event: { nativeEvent: { data: string } }) => {
+            handlePlayMessage(event.nativeEvent.data);
+          },
+        }
+      : null,
+  };
+}
+
+function YouTubeEmbedPlayer({ url }: { url: string }) {
+  const inlineSource = useMemo(() => buildYouTubeEmbedSource(url), [url]);
+  const fullscreenSource = useMemo(
+    () => buildYouTubeEmbedSource(url, { autoplay: true, notifyOnPlay: false }),
+    [url],
+  );
+  const { modal, webViewProps } = useFullscreenWebEmbed(inlineSource, fullscreenSource);
+
+  if (!webViewProps) return null;
+
+  return (
+    <>
+      <WebView style={styles.player} {...WEBVIEW_EMBED_PROPS} {...webViewProps} />
+      {modal}
+    </>
+  );
+}
+
+function EmbedVideoPlayer({ url, provider }: { url: string; provider?: string }) {
+  const inlineSource = useMemo<WebEmbedSource | null>(() => {
+    if (provider === 'vimeo') {
+      return buildVimeoEmbedSource(url, { notifyOnPlay: true });
+    }
+    return { uri: url };
+  }, [url, provider]);
+
+  const fullscreenSource = useMemo<WebEmbedSource | null>(() => {
+    if (provider === 'vimeo') {
+      return buildVimeoEmbedSource(url, { autoplay: true, notifyOnPlay: false });
+    }
+    return inlineSource;
+  }, [url, provider, inlineSource]);
+
+  const { modal, webViewProps } = useFullscreenWebEmbed(inlineSource, fullscreenSource);
+
+  if (!webViewProps) return null;
+
+  return (
+    <>
+      <WebView style={styles.player} {...WEBVIEW_EMBED_PROPS} {...webViewProps} />
+      {modal}
+    </>
   );
 }
 
@@ -119,13 +268,15 @@ export function ArticleVideoBlock({
   block: VideoBlock;
   colors: ReturnType<typeof useTheme>['colors'];
 }) {
-  const [loadFailed, setLoadFailed] = useState(!block.url.trim());
+  const isYouTube = isYouTubePlaybackUrl(block.url, block.provider);
+  const youtubeId = isYouTube ? extractYouTubeVideoId(block.url) : null;
+  const [loadFailed, setLoadFailed] = useState(!block.url.trim() || (isYouTube && !youtubeId));
   const [retryKey, setRetryKey] = useState(0);
-  const embed = usesWebEmbed(block.provider);
+  const embed = usesWebEmbed(block.provider) || isYouTube;
 
   useEffect(() => {
-    setLoadFailed(!block.url.trim());
-  }, [block.url, retryKey]);
+    setLoadFailed(!block.url.trim() || (isYouTube && !youtubeId));
+  }, [block.url, block.provider, isYouTube, retryKey, youtubeId]);
 
   if (loadFailed) {
     return (
@@ -148,8 +299,10 @@ export function ArticleVideoBlock({
   return (
     <View style={styles.block}>
       <View style={[styles.playerWrap, { backgroundColor: colors.surface }]}>
-        {embed ? (
-          <EmbedVideoPlayer key={retryKey} url={block.url} />
+        {isYouTube ? (
+          <YouTubeEmbedPlayer key={retryKey} url={block.url} />
+        ) : embed ? (
+          <EmbedVideoPlayer key={retryKey} url={block.url} provider={block.provider} />
         ) : (
           <DirectVideoPlayer key={retryKey} url={block.url} />
         )}
@@ -177,6 +330,24 @@ const styles = StyleSheet.create({
     width: '100%',
     aspectRatio: 16 / 9,
     backgroundColor: '#000',
+  },
+  fullscreenRoot: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  fullscreenPlayer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  fullscreenClose: {
+    position: 'absolute',
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
   },
   caption: {
     fontFamily: 'Inter',

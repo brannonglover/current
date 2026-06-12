@@ -42,39 +42,57 @@ const readerContentCache = new Map<string, ArticleReaderContent>();
 const inFlightFetches = new Map<string, Promise<ArticleReaderContent>>();
 
 export function getCachedReaderContent(articleId: string): ArticleReaderContent | undefined {
-  return readerContentCache.get(articleId);
+  const cached = readerContentCache.get(articleId);
+  if (cached?.source === 'extracted' && cached.blocks.length > 0) return cached;
+  return undefined;
 }
 
 /** Start loading reader content before navigation so the article screen can render immediately. */
 export function prefetchArticleReaderContent(articleId: string): void {
-  if (readerContentCache.has(articleId) || inFlightFetches.has(articleId)) return;
+  const cached = readerContentCache.get(articleId);
+  if ((cached?.source === 'extracted' && cached.blocks.length > 0) || inFlightFetches.has(articleId)) {
+    return;
+  }
   void loadArticleReaderContent(articleId).catch(() => undefined);
 }
 
-async function loadArticleReaderContent(articleId: string): Promise<ArticleReaderContent> {
+async function loadArticleReaderContent(
+  articleId: string,
+  options?: { refresh?: boolean },
+): Promise<ArticleReaderContent> {
   const cached = readerContentCache.get(articleId);
-  if (cached) return cached;
+  if (!options?.refresh && cached?.source === 'extracted' && cached.blocks.length > 0) {
+    return cached;
+  }
 
-  const inFlight = inFlightFetches.get(articleId);
+  const inFlightKey = options?.refresh ? `${articleId}:refresh` : articleId;
+  const inFlight = inFlightFetches.get(inFlightKey);
   if (inFlight) return inFlight;
 
   const promise = (async () => {
-    const response = await fetch(`${API_URL}/api/articles/${articleId}/content`, {
+    const query = options?.refresh ? '?refresh=true' : '';
+    const response = await fetch(`${API_URL}/api/articles/${articleId}/content${query}`, {
       headers: { Accept: 'application/json' },
     });
     const data = await parseJson<ContentResponse>(response);
     const content = normalizeReaderContent(data.content);
-    readerContentCache.set(articleId, content);
+    if (content.source === 'extracted' && content.blocks.length > 0) {
+      readerContentCache.set(articleId, content);
+      return content;
+    }
+    if (!options?.refresh) {
+      return loadArticleReaderContent(articleId, { refresh: true });
+    }
     return content;
   })();
 
-  inFlightFetches.set(articleId, promise);
+  inFlightFetches.set(inFlightKey, promise);
 
   try {
     return await promise;
   } finally {
-    if (inFlightFetches.get(articleId) === promise) {
-      inFlightFetches.delete(articleId);
+    if (inFlightFetches.get(inFlightKey) === promise) {
+      inFlightFetches.delete(inFlightKey);
     }
   }
 }

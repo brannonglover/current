@@ -666,8 +666,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   newspaperMetaSource: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
+    alignSelf: 'flex-start',
   },
   newspaperMeta: {
     fontFamily: 'Inter',

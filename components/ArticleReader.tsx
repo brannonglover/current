@@ -137,7 +137,9 @@ export function ArticleReader({ article }: ArticleReaderProps) {
   }, [article.id]);
 
   const extractedBlocks =
-    readerContent && readerContent.blocks.length > 0 ? readerContent.blocks : null;
+    readerContent?.source === 'extracted' && readerContent.blocks.length > 0
+      ? readerContent.blocks
+      : null;
   const { feedLede, bodyBlocks } = resolveReaderBlockLayout({
     article,
     extractedBlocks,

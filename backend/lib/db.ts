@@ -308,6 +308,14 @@ export function getArticleById(id: string): Article | undefined {
   return row ? rowToArticle(row) : undefined;
 }
 
+/** Backfill hero image when ingest missed RSS/OG enrichment (e.g. legacy Guardian rows). */
+export function updateArticleImageUrl(id: string, imageUrl: string): void {
+  const database = getDb();
+  database
+    .prepare(`UPDATE articles SET image_url = ? WHERE id = ?`)
+    .run(imageUrl, id);
+}
+
 export function articleCount(): number {
   const database = getDb();
   const row = database.prepare(`SELECT COUNT(*) as count FROM articles`).get() as {

@@ -73,3 +73,14 @@ test('isEspnFeedUrl matches ESPN feed hosts', () => {
   assert.equal(isEspnFeedUrl('https://www.espn.com/espn/rss/soccer/news'), true);
   assert.equal(isEspnFeedUrl('https://feeds.bbci.co.uk/sport/football/rss.xml'), false);
 });
+
+test('parseOgImageUrl reads Guardian og:image from article HTML', () => {
+  const html = `
+    <head>
+      <meta property="og:image" content="https://i.guim.co.uk/img/media/e568abb057651e11af43846809a978df3c5a45ff/0_0_1500_1200/master/1500.jpg?width=1200&amp;height=630&amp;quality=85&amp;auto=format&amp;fit=crop&amp;s=abc123"/>
+    </head>
+  `;
+
+  assert.match(parseOgImageUrl(html) ?? '', /i\.guim\.co\.uk\/img\/media\//);
+  assert.match(parseOgImageUrl(html) ?? '', /width=1200/);
+});

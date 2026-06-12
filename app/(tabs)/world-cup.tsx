@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FeedHeader } from '@/components/FeedHeader';
+import { WorldCupMatchDetailModal } from '@/components/WorldCupMatchDetailModal';
 import { WorldCupTab, WorldCupTabBar } from '@/components/WorldCupTabBar';
 import { WORLD_CUP_GROUP_CARD_MIN_HEIGHT } from '@/constants/Layout';
 import {
@@ -80,15 +81,20 @@ function LiveBadge() {
   );
 }
 
-function MatchCard({ match }: { match: WorldCupMatch }) {
+function MatchCard({ match, onPress }: { match: WorldCupMatch; onPress: () => void }) {
   const { colors } = useTheme();
 
   return (
-    <View
-      style={[
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${match.home.name} vs ${match.away.name}, ${match.home.score} to ${match.away.score}`}
+      accessibilityHint="Shows match breakdown"
+      style={({ pressed }) => [
         styles.matchCard,
         { backgroundColor: colors.surface, borderColor: colors.border },
         match.isLive && { borderColor: colors.accent },
+        pressed && { opacity: 0.75 },
       ]}>
       <View style={styles.matchMetaRow}>
         {match.isLive ? (
@@ -113,19 +119,24 @@ function MatchCard({ match }: { match: WorldCupMatch }) {
         {formatKickoff(match.startTime)}
         {match.venue ? ` · ${match.venue}` : ''}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
-function BracketMatchCard({ match }: { match: WorldCupMatch }) {
+function BracketMatchCard({ match, onPress }: { match: WorldCupMatch; onPress: () => void }) {
   const { colors } = useTheme();
 
   return (
-    <View
-      style={[
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${match.home.name} vs ${match.away.name}`}
+      accessibilityHint="Shows match breakdown"
+      style={({ pressed }) => [
         styles.bracketMatchCard,
         { backgroundColor: colors.surface, borderColor: colors.border },
         match.isLive && { borderColor: colors.accent },
+        pressed && { opacity: 0.75 },
       ]}>
       <View style={styles.bracketTeamRow}>
         <BracketTeamLine team={match.home} colors={colors} />
@@ -135,7 +146,7 @@ function BracketMatchCard({ match }: { match: WorldCupMatch }) {
         {match.isLive ? 'Live' : match.status}
         {match.statusDetail ? ` · ${match.statusDetail}` : ''}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -253,7 +264,15 @@ function GroupStandingsGrid({ groups }: { groups: WorldCupGroup[] }) {
   );
 }
 
-function BracketView({ groups, rounds }: { groups: WorldCupGroup[]; rounds: WorldCupBracketRound[] }) {
+function BracketView({
+  groups,
+  rounds,
+  onSelectMatch,
+}: {
+  groups: WorldCupGroup[];
+  rounds: WorldCupBracketRound[];
+  onSelectMatch: (match: WorldCupMatch) => void;
+}) {
   const { colors } = useTheme();
 
   if (groups.length === 0 && rounds.length === 0) {
@@ -299,7 +318,11 @@ function BracketView({ groups, rounds }: { groups: WorldCupGroup[]; rounds: Worl
                 ) : null}
                 <View style={styles.bracketMatchList}>
                   {round.matches.map((match) => (
-                    <BracketMatchCard key={match.id} match={match} />
+                    <BracketMatchCard
+                      key={match.id}
+                      match={match}
+                      onPress={() => onSelectMatch(match)}
+                    />
                   ))}
                 </View>
               </View>
@@ -401,6 +424,7 @@ export default function WorldCupScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [selectedMatch, setSelectedMatch] = useState<WorldCupMatch | null>(null);
 
   const load = useCallback(async (mode: 'initial' | 'refresh' | 'silent') => {
     if (mode === 'initial') setIsLoading(true);
@@ -457,6 +481,17 @@ export default function WorldCupScreen() {
     return () => clearInterval(intervalId);
   }, [shouldPollLiveScores, load]);
 
+  useEffect(() => {
+    if (!selectedMatch) return;
+
+    const updated = [...matches, ...bracket.flatMap((round) => round.matches)].find(
+      (match) => match.id === selectedMatch.id,
+    );
+    if (updated && updated !== selectedMatch) {
+      setSelectedMatch(updated);
+    }
+  }, [matches, bracket, selectedMatch]);
+
   if (isLoading && matches.length === 0 && updates.length === 0 && groups.length === 0 && bracket.length === 0) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
@@ -493,7 +528,11 @@ export default function WorldCupScreen() {
 
         {activeTab === 'bracket' ? (
           <View style={styles.tabContent}>
-            <BracketView groups={groups} rounds={bracket} />
+            <BracketView
+              groups={groups}
+              rounds={bracket}
+              onSelectMatch={setSelectedMatch}
+            />
           </View>
         ) : null}
 
@@ -506,7 +545,11 @@ export default function WorldCupScreen() {
             ) : (
               <View style={styles.matchList}>
                 {sortedMatches.map((match) => (
-                  <MatchCard key={match.id} match={match} />
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    onPress={() => setSelectedMatch(match)}
+                  />
                 ))}
               </View>
             )}
@@ -529,6 +572,11 @@ export default function WorldCupScreen() {
           </View>
         ) : null}
       </ScrollView>
+      <WorldCupMatchDetailModal
+        match={selectedMatch}
+        visible={selectedMatch !== null}
+        onClose={() => setSelectedMatch(null)}
+      />
     </View>
   );
 }
