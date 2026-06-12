@@ -47,7 +47,7 @@ export default function LatestScreen() {
   const prevRawLengthRef = useRef(0);
   const prevFilterKeyRef = useRef('');
   const syncDisplayHandledRef = useRef(false);
-  const { markInitialDisplay, shouldAllowFullRebuild, shouldAllowSilentMerge, lockEpoch } =
+  const { markInitialDisplay, shouldAllowFullRebuild, shouldAllowSilentMerge } =
     useDisplayOrderLock(isRefreshing);
 
   const filterKey = useMemo(
@@ -159,7 +159,6 @@ export default function LatestScreen() {
     feedGeneration,
     filterFeedArticles,
     filterKey,
-    lockEpoch,
     orderOpts,
     shouldAllowSilentMerge,
   ]);

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeFeedPreferences } from '@/services/feedPreferences';
+import { reconcileInterestScores } from '@/services/interestSignals';
 import { Topic, UserPreferences } from '@/types';
 
 const PREFS_PREFIX = '@dailyfold/prefs/';
@@ -41,22 +42,24 @@ export async function getPreferences(userId: string): Promise<UserPreferences> {
     };
   }
   const parsed = JSON.parse(raw) as Partial<UserPreferences>;
-  return normalizeFeedPreferences({
-    likedArticleIds: parsed.likedArticleIds ?? [],
-    likedArticles: parsed.likedArticles ?? {},
-    topicScores: { ...DEFAULT_TOPIC_SCORES, ...parsed.topicScores },
-    sourceScores: {},
-    keywordScores: parsed.keywordScores ?? {},
-    sportTagScores: parsed.sportTagScores ?? {},
-    enabledSourceIds: parsed.enabledSourceIds ?? [],
-    enabledTopics: parsed.enabledTopics ?? [],
-    enabledSportTags: parsed.enabledSportTags ?? [],
-    trendingNotificationsEnabled: parsed.trendingNotificationsEnabled ?? false,
-    blockedTopics: parsed.blockedTopics ?? [],
-    blockedSportTags: parsed.blockedSportTags ?? [],
-    blockedKeywords: parsed.blockedKeywords ?? [],
-    folders: parsed.folders ?? [],
-  });
+  return reconcileInterestScores(
+    normalizeFeedPreferences({
+      likedArticleIds: parsed.likedArticleIds ?? [],
+      likedArticles: parsed.likedArticles ?? {},
+      topicScores: { ...DEFAULT_TOPIC_SCORES, ...parsed.topicScores },
+      sourceScores: {},
+      keywordScores: parsed.keywordScores ?? {},
+      sportTagScores: parsed.sportTagScores ?? {},
+      enabledSourceIds: parsed.enabledSourceIds ?? [],
+      enabledTopics: parsed.enabledTopics ?? [],
+      enabledSportTags: parsed.enabledSportTags ?? [],
+      trendingNotificationsEnabled: parsed.trendingNotificationsEnabled ?? false,
+      blockedTopics: parsed.blockedTopics ?? [],
+      blockedSportTags: parsed.blockedSportTags ?? [],
+      blockedKeywords: parsed.blockedKeywords ?? [],
+      folders: parsed.folders ?? [],
+    }),
+  );
 }
 
 export async function savePreferences(userId: string, prefs: UserPreferences) {

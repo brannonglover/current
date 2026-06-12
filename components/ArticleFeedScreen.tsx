@@ -25,6 +25,7 @@ interface ArticleFeedScreenProps {
   onApplyPending?: () => void | Promise<void>;
   onDismissPending?: () => void;
   layout?: ArticleFeedLayout;
+  matchReasonsByArticleId?: Map<string, string[]>;
 }
 
 export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreenProps>(
@@ -49,6 +50,7 @@ export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreen
       onApplyPending,
       onDismissPending,
       layout,
+      matchReasonsByArticleId,
     },
     ref,
   ) {
@@ -93,6 +95,7 @@ export const ArticleFeedScreen = forwardRef<ArticleFeedHandle, ArticleFeedScreen
         isLoadingMore={isLoadingMore}
         loadMoreCursor={loadMoreCursor}
         layout={layout}
+        matchReasonsByArticleId={matchReasonsByArticleId}
       />
     </View>
   );

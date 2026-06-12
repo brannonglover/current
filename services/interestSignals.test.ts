@@ -4,7 +4,11 @@ import test from 'node:test';
 import { CURIOSITY_ORDER } from '@/constants/curiosities';
 import { Article, UserPreferences } from '@/types';
 
-import { applyArticleLikeSignals } from './interestSignals';
+import {
+  applyArticleLikeSignals,
+  buildLikedInterestProfile,
+  reconcileInterestScores,
+} from './interestSignals';
 
 function basePrefs(): UserPreferences {
   return {
@@ -51,6 +55,24 @@ test('applyArticleLikeSignals boosts topics and keywords, not source', () => {
   assert.equal('sourceScores' in signals, false);
 });
 
+test('applyArticleLikeSignals excludes publication-name topics from Mens Health', () => {
+  const prefs = basePrefs();
+  const signals = applyArticleLikeSignals(
+    prefs,
+    article({
+      title: "Patricia's Widow Bay horror comedy TV series review",
+      topics: ['culture', 'health'],
+      source: "Men's Health",
+    }),
+    false,
+  );
+
+  assert.equal(signals.topicScores.culture, 1);
+  assert.equal(signals.topicScores.health ?? 0, 0);
+  assert.ok(signals.keywordScores.tv > 0);
+  assert.equal(signals.keywordScores.health, undefined);
+});
+
 test('applyArticleLikeSignals records sport tags for sports articles', () => {
   const prefs = basePrefs();
   const signals = applyArticleLikeSignals(
@@ -66,4 +88,83 @@ test('applyArticleLikeSignals records sport tags for sports articles', () => {
 
   assert.equal(signals.topicScores.sports, 1);
   assert.ok(signals.sportTagScores.football > 0);
+});
+
+test('buildLikedInterestProfile aggregates topics, keywords, and sport tags from saved likes', () => {
+  const liked = article({
+    id: 'liked-nba',
+    title: 'NBA playoffs preview',
+    excerpt: 'Championship race heats up',
+    topics: ['sports'],
+    sportTags: ['basketball'],
+  });
+  const prefs = {
+    ...basePrefs(),
+    likedArticleIds: ['liked-nba'],
+    likedArticles: { 'liked-nba': liked },
+  };
+
+  const profile = buildLikedInterestProfile(prefs);
+
+  assert.ok(profile);
+  assert.equal(profile!.topicScores.sports, 1);
+  assert.ok(profile!.keywordScores.nba > 0);
+  assert.equal(profile!.sportTagScores.basketball, 1);
+});
+
+test('buildLikedInterestProfile falls back to persisted scores when snapshots are missing', () => {
+  const prefs = {
+    ...basePrefs(),
+    likedArticleIds: ['missing-like'],
+    likedArticles: {},
+    topicScores: { ...basePrefs().topicScores, culture: 2 },
+    keywordScores: { series: 1 },
+  };
+
+  const profile = buildLikedInterestProfile(prefs);
+
+  assert.ok(profile);
+  assert.equal(profile!.topicScores.culture, 2);
+  assert.equal(profile!.keywordScores.series, 1);
+});
+
+test('buildLikedInterestProfile ignores stale persisted scores when snapshots exist', () => {
+  const liked = article({
+    id: 'liked-culture',
+    title: 'Must-watch series season finale',
+    topics: ['culture'],
+  });
+  const prefs = {
+    ...basePrefs(),
+    likedArticleIds: ['liked-culture', 'missing-like'],
+    likedArticles: { 'liked-culture': liked },
+    topicScores: { ...basePrefs().topicScores, politics: 1 },
+    keywordScores: { senate: 1 },
+  };
+
+  const profile = buildLikedInterestProfile(prefs);
+
+  assert.ok(profile);
+  assert.equal(profile!.topicScores.culture, 1);
+  assert.equal(profile!.topicScores.politics ?? 0, 0);
+  assert.ok(profile!.keywordScores.series > 0);
+  assert.equal(profile!.keywordScores.senate, undefined);
+});
+
+test('reconcileInterestScores rebuilds persisted scores from liked snapshots', () => {
+  const liked = article({
+    id: 'liked-science',
+    title: 'Mars rover discovers water ice',
+    topics: ['science'],
+  });
+  const prefs = {
+    ...basePrefs(),
+    likedArticleIds: ['liked-science'],
+    likedArticles: { 'liked-science': liked },
+  };
+
+  const reconciled = reconcileInterestScores(prefs);
+
+  assert.equal(reconciled.topicScores.science, 1);
+  assert.ok(Object.keys(reconciled.keywordScores).length > 0);
 });

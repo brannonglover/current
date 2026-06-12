@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { memo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ArticleImage } from '@/components/ArticleImage';
@@ -32,6 +33,8 @@ interface ArticleCardProps {
   allowPress?: () => boolean;
   /** When set, shows why the story is prioritized in the feed. */
   trendingBadge?: TrendingBadgeInfo;
+  /** For You only — which liked-interest signals matched this article (max 3). */
+  matchReasons?: string[];
 }
 
 function formatDate(iso: string) {
@@ -157,6 +160,41 @@ function TrendingBadge({
   );
 }
 
+function MatchReasonChips({
+  reasons,
+  onImage,
+}: {
+  reasons: string[];
+  onImage?: boolean;
+}) {
+  const { colors } = useTheme();
+  if (reasons.length === 0) return null;
+
+  return (
+    <View style={styles.matchReasons} accessibilityRole="text">
+      {reasons.map((reason) => (
+        <View
+          key={reason}
+          style={[
+            styles.matchReasonChip,
+            onImage
+              ? styles.matchReasonChipOnImage
+              : { backgroundColor: colors.accentMuted, borderColor: colors.accentMuted },
+          ]}>
+          <Text
+            style={[
+              styles.matchReasonText,
+              onImage ? styles.matchReasonTextOnImage : { color: colors.accent },
+            ]}
+            numberOfLines={1}>
+            {reason}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function SubscriptionBadge({
   compact,
   tone = 'default',
@@ -218,12 +256,14 @@ function NewspaperOverlayCard({
   variant,
   allowPress,
   trendingBadge,
+  matchReasons,
 }: {
   article: Article;
   height: number;
   variant: 'hero' | 'compact' | 'featured';
   allowPress?: () => boolean;
   trendingBadge?: TrendingBadgeInfo;
+  matchReasons?: string[];
 }) {
   const { colors } = useTheme();
   const router = useRouter();
@@ -302,6 +342,9 @@ function NewspaperOverlayCard({
                   <Text style={styles.newspaperMeta}>{formatDate(article.publishedAt)}</Text>
                 </View>
               </View>
+              {matchReasons && matchReasons.length > 0 ? (
+                <MatchReasonChips reasons={matchReasons} onImage />
+              ) : null}
               <Text
                 style={[
                   styles.newspaperTitle,
@@ -323,12 +366,41 @@ function NewspaperOverlayCard({
   );
 }
 
-export function ArticleCard({
+function matchReasonsKey(reasons?: string[]) {
+  return reasons?.join('\0') ?? '';
+}
+
+function trendingBadgeKey(badge?: TrendingBadgeInfo) {
+  if (!badge) return '';
+  return `${badge.kind}:${badge.days}`;
+}
+
+function areArticleCardPropsEqual(prev: ArticleCardProps, next: ArticleCardProps) {
+  return (
+    prev.article.id === next.article.id &&
+    prev.article.title === next.article.title &&
+    prev.article.excerpt === next.article.excerpt &&
+    prev.article.imageUrl === next.article.imageUrl &&
+    prev.article.publishedAt === next.article.publishedAt &&
+    prev.article.source === next.article.source &&
+    prev.article.sourceLogo === next.article.sourceLogo &&
+    prev.article.requiresSubscription === next.article.requiresSubscription &&
+    prev.article.topics.join('\0') === next.article.topics.join('\0') &&
+    prev.height === next.height &&
+    prev.variant === next.variant &&
+    prev.allowPress === next.allowPress &&
+    trendingBadgeKey(prev.trendingBadge) === trendingBadgeKey(next.trendingBadge) &&
+    matchReasonsKey(prev.matchReasons) === matchReasonsKey(next.matchReasons)
+  );
+}
+
+export const ArticleCard = memo(function ArticleCard({
   article,
   height,
   variant = 'default',
   allowPress,
   trendingBadge,
+  matchReasons,
 }: ArticleCardProps) {
   if (variant === 'hero' || variant === 'compact' || variant === 'featured') {
     return (
@@ -338,6 +410,7 @@ export function ArticleCard({
         variant={variant}
         allowPress={allowPress}
         trendingBadge={trendingBadge}
+        matchReasons={matchReasons}
       />
     );
   }
@@ -403,6 +476,10 @@ export function ArticleCard({
             </View>
           </View>
 
+          {matchReasons && matchReasons.length > 0 ? (
+            <MatchReasonChips reasons={matchReasons} />
+          ) : null}
+
           <Pressable
             onPress={openArticle}
             accessibilityRole="button"
@@ -444,7 +521,7 @@ export function ArticleCard({
       </View>
     </View>
   );
-}
+}, areArticleCardPropsEqual);
 
 const styles = StyleSheet.create({
   card: {
@@ -619,6 +696,34 @@ const styles = StyleSheet.create({
   topicText: {
     fontFamily: 'InterMedium',
     fontSize: 11,
+  },
+  matchReasons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+    maxHeight: 28,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  matchReasonChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  matchReasonChipOnImage: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  matchReasonText: {
+    fontFamily: 'InterSemiBold',
+    fontSize: 10,
+    letterSpacing: 0.2,
+  },
+  matchReasonTextOnImage: {
+    color: OVERLAY_TITLE_COLOR,
+    ...OVERLAY_TEXT_SHADOW,
   },
   readMore: {
     flexShrink: 0,

@@ -36,14 +36,20 @@ import {
 } from '@/services/blockPreferences';
 import { applyFeedFilters } from '@/services/feedFilters';
 import { normalizeFeedPreferences } from '@/services/feedPreferences';
+import { fetchArticleById } from '@/services/articles';
 import {
   mergeLikedArticleSnapshot,
+  missingLikedArticleIds,
   removeLikedArticleSnapshot,
 } from '@/services/likedArticles';
 import { requestTrendingNotificationPermission } from '@/services/notificationSetup';
 import { warmArticleCache } from '@/services/articleCache';
 import { getPreferences, savePreferences } from '@/services/storage';
-import { applyArticleLikeSignals } from '@/services/interestSignals';
+import {
+  applyArticleLikeSignals,
+  buildLikedInterestProfile,
+  reconcileInterestScores,
+} from '@/services/interestSignals';
 import {
   getPersonalizationSummary,
   getTopKeywords,
@@ -100,6 +106,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   const [sources, setSources] = useState<FeedSource[]>(FALLBACK_SOURCES);
   const [isLoading, setIsLoading] = useState(true);
   const preferencesRef = useRef<UserPreferences | null>(null);
+  const likedBackfillInFlightRef = useRef(false);
 
   preferencesRef.current = preferences;
 
@@ -146,6 +153,40 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     },
     [user],
   );
+
+  /** Backfill liked-article snapshots app-wide so For You can build a profile from Likes. */
+  useEffect(() => {
+    if (!user || !preferences) return;
+
+    const missing = missingLikedArticleIds(
+      preferences.likedArticleIds,
+      preferences.likedArticles ?? {},
+      [],
+    );
+    if (missing.length === 0 || likedBackfillInFlightRef.current) return;
+
+    likedBackfillInFlightRef.current = true;
+    void (async () => {
+      try {
+        const fetched = (
+          await Promise.all(missing.map((id) => fetchArticleById(id)))
+        ).filter((article): article is Article => article != null);
+        if (fetched.length === 0) return;
+
+        const current = preferencesRef.current;
+        if (!current) return;
+
+        let likedArticles = current.likedArticles ?? {};
+        for (const article of fetched) {
+          likedArticles = mergeLikedArticleSnapshot(likedArticles, article);
+        }
+
+        await persist(reconcileInterestScores({ ...current, likedArticles }));
+      } finally {
+        likedBackfillInFlightRef.current = false;
+      }
+    })();
+  }, [user, preferences?.likedArticleIds, persist]);
 
   /** All topics + sports-only outlets leaves a sports-only feed and API fetch. */
   useEffect(() => {
@@ -202,7 +243,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
         likedArticles = mergeLikedArticleSnapshot(likedArticles, article);
       }
 
-      await persist({ ...preferences, likedArticles });
+      await persist(reconcileInterestScores({ ...preferences, likedArticles }));
     },
     [user, preferences, persist],
   );
@@ -486,19 +527,24 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     [preferences, sources],
   );
 
-  const topTopics = useMemo(
-    () => (preferences ? getTopTopics(preferences) : []),
+  const likedInterestProfile = useMemo(
+    () => (preferences ? buildLikedInterestProfile(preferences) : null),
     [preferences],
+  );
+
+  const topTopics = useMemo(
+    () => (likedInterestProfile ? getTopTopics(likedInterestProfile) : []),
+    [likedInterestProfile],
   );
 
   const topSportTags = useMemo(
-    () => (preferences ? getTopSportTags(preferences) : []),
-    [preferences],
+    () => (likedInterestProfile ? getTopSportTags(likedInterestProfile) : []),
+    [likedInterestProfile],
   );
 
   const topKeywords = useMemo(
-    () => (preferences ? getTopKeywords(preferences) : []),
-    [preferences],
+    () => (likedInterestProfile ? getTopKeywords(likedInterestProfile) : []),
+    [likedInterestProfile],
   );
 
   const personalizationSummary = useMemo(

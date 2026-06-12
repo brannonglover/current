@@ -1,9 +1,6 @@
 import { Article } from '@/types';
 import { spreadAgainstFeedHead } from '@/utils/feedOrdering';
 
-/** Keep display order stable through silent refresh and catalog hydration. */
-export const DISPLAY_ORDER_LOCK_MS = 10_000;
-
 const ARTICLE_FEED_CARD_FIELDS = [
   'title',
   'excerpt',

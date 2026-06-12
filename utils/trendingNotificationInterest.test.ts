@@ -25,11 +25,14 @@ function basePrefs(overrides: Partial<UserPreferences> = {}): UserPreferences {
   };
 }
 
-function article(topics: UserPreferences['topicScores'] extends Record<infer K, number> ? K[] : never): Article {
+function article(
+  topics: UserPreferences['topicScores'] extends Record<infer K, number> ? K[] : never,
+  title = 'Story',
+): Article {
   return {
     id: 'a1',
-    title: 'Story',
-    excerpt: 'excerpt',
+    title,
+    excerpt: title,
     body: 'body',
     source: 'Wire',
     imageUrl: 'https://example.com/1.jpg',
@@ -40,35 +43,39 @@ function article(topics: UserPreferences['topicScores'] extends Record<infer K, 
   };
 }
 
-test('isTrendingNotificationRelevant requires affinity when user has like signals', () => {
-  const prefs = basePrefs({
-    topicScores: { ...basePrefs().topicScores, technology: 2 },
+function prefsWithLike(liked: Article, overrides: Partial<UserPreferences> = {}): UserPreferences {
+  return basePrefs({
+    likedArticleIds: [liked.id],
+    likedArticles: { [liked.id]: liked },
+    ...overrides,
   });
+}
 
-  assert.equal(isTrendingNotificationRelevant(article(['technology']), prefs), true);
-  assert.equal(isTrendingNotificationRelevant(article(['politics']), prefs), false);
+test('isTrendingNotificationRelevant requires affinity when user has liked articles', () => {
+  const liked = article(['technology'], 'New AI model release');
+  const prefs = prefsWithLike(liked);
+
+  assert.equal(isTrendingNotificationRelevant(article(['technology'], 'New AI model release'), prefs), true);
+  assert.equal(isTrendingNotificationRelevant(article(['politics'], 'Election update'), prefs), false);
 });
 
-test('isTrendingNotificationRelevant requires breaking for all-topics feed with like signals', () => {
-  const prefs = basePrefs({
-    topicScores: { ...basePrefs().topicScores, technology: 2 },
-  });
+test('isTrendingNotificationRelevant requires breaking for all-topics feed with liked articles', () => {
+  const liked = article(['technology'], 'New AI model release');
+  const prefs = prefsWithLike(liked);
   const pressingOnly = {
-    ...article(['technology']),
+    ...article(['technology'], 'New AI model release'),
     publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   };
 
   assert.equal(isTrendingNotificationRelevant(pressingOnly, prefs, Date.now(), 3), false);
-  assert.equal(isTrendingNotificationRelevant(article(['technology']), prefs, Date.now(), 3), true);
+  assert.equal(isTrendingNotificationRelevant(article(['technology'], 'New AI model release'), prefs, Date.now(), 3), true);
 });
 
-test('isTrendingNotificationRelevant allows pressing story with like signals and narrowed topics', () => {
-  const prefs = basePrefs({
-    enabledTopics: ['science'],
-    topicScores: { ...basePrefs().topicScores, science: 2 },
-  });
+test('isTrendingNotificationRelevant allows pressing story with liked articles and narrowed topics', () => {
+  const liked = article(['science'], 'Mars rover discovery');
+  const prefs = prefsWithLike(liked, { enabledTopics: ['science'] });
   const pressing = {
-    ...article(['science']),
+    ...article(['science'], 'Mars rover discovery'),
     publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   };
 

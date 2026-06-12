@@ -1,8 +1,19 @@
+import { resolveLikedArticles } from '@/services/likedArticles';
 import { articleSportTags } from '@/services/sportPreferences';
-import { extractInterestKeywords } from '@/utils/interestKeywords';
+import {
+  extractInterestKeywords,
+  getInterestKeywordWeight,
+  isSourceBleed,
+} from '@/utils/interestKeywords';
 import { Article, Topic, UserPreferences } from '@/types';
 
 export const LIKE_BOOST = 1;
+
+/** Interest profile derived from saved likes — source of truth for For You matching. */
+export type LikedInterestProfile = Pick<
+  UserPreferences,
+  'topicScores' | 'keywordScores' | 'sportTagScores'
+>;
 
 function adjustScoreMap(
   scores: Record<string, number>,
@@ -23,7 +34,31 @@ function adjustScoreMap(
 }
 
 export function articleInterestKeywords(article: Article): string[] {
-  return extractInterestKeywords(`${article.title} ${article.excerpt}`);
+  return extractInterestKeywords({
+    text: `${article.title} ${article.excerpt}`,
+    title: article.title,
+    source: article.source,
+    topics: article.topics,
+  });
+}
+
+function applyWeightedKeywordScores(
+  scores: Record<string, number>,
+  keywords: string[],
+  delta: number,
+): Record<string, number> {
+  const next = { ...scores };
+  for (const keyword of keywords) {
+    const weight = getInterestKeywordWeight(keyword);
+    const current = next[keyword] ?? 0;
+    const updated = current + delta * weight;
+    if (updated <= 0) {
+      delete next[keyword];
+    } else {
+      next[keyword] = updated;
+    }
+  }
+  return next;
 }
 
 export function applyArticleLikeSignals(
@@ -35,12 +70,13 @@ export function applyArticleLikeSignals(
 
   const topicScores = { ...preferences.topicScores };
   for (const topic of article.topics) {
+    if (isSourceBleed(topic, article.source)) continue;
     const current = topicScores[topic as Topic] ?? 0;
     const updated = current + delta;
     topicScores[topic as Topic] = Math.max(0, updated);
   }
 
-  const keywordScores = adjustScoreMap(
+  const keywordScores = applyWeightedKeywordScores(
     preferences.keywordScores,
     articleInterestKeywords(article),
     delta,
@@ -55,9 +91,133 @@ export function applyArticleLikeSignals(
   return { topicScores, keywordScores, sportTagScores };
 }
 
-export function hasPersonalizationSignals(prefs: UserPreferences): boolean {
-  if (Object.values(prefs.topicScores).some((score) => score > 0)) return true;
-  if (Object.values(prefs.keywordScores).some((score) => score > 0)) return true;
-  if (Object.values(prefs.sportTagScores ?? {}).some((score) => score > 0)) return true;
+export function hasInterestSignals(profile: {
+  topicScores: Record<string, number>;
+  keywordScores: Record<string, number>;
+  sportTagScores?: Record<string, number>;
+}): boolean {
+  if (Object.values(profile.topicScores).some((score) => score > 0)) return true;
+  if (Object.values(profile.keywordScores).some((score) => score > 0)) return true;
+  if (Object.values(profile.sportTagScores ?? {}).some((score) => score > 0)) return true;
   return false;
+}
+
+export function hasPersonalizationSignals(prefs: UserPreferences): boolean {
+  return hasInterestSignals(prefs);
+}
+
+function mergeScoreMaps(
+  primary: Record<string, number>,
+  secondary: Record<string, number>,
+): Record<string, number> {
+  const next = { ...secondary };
+  for (const [key, score] of Object.entries(primary)) {
+    if (score <= 0) continue;
+    next[key] = Math.max(next[key] ?? 0, score);
+  }
+  return next;
+}
+
+function persistedInterestProfile(
+  prefs: UserPreferences,
+): LikedInterestProfile {
+  return {
+    topicScores: prefs.topicScores,
+    keywordScores: prefs.keywordScores,
+    sportTagScores: prefs.sportTagScores ?? {},
+  };
+}
+
+function interestProfilesEqual(a: LikedInterestProfile, b: LikedInterestProfile): boolean {
+  const mapsEqual = (left: Record<string, number>, right: Record<string, number>) => {
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    for (const key of keys) {
+      if ((left[key] ?? 0) !== (right[key] ?? 0)) return false;
+    }
+    return true;
+  };
+
+  return (
+    mapsEqual(a.topicScores, b.topicScores) &&
+    mapsEqual(a.keywordScores, b.keywordScores) &&
+    mapsEqual(a.sportTagScores ?? {}, b.sportTagScores ?? {})
+  );
+}
+
+export function mergeInterestProfiles(
+  fromLikes: LikedInterestProfile,
+  persisted: LikedInterestProfile,
+): LikedInterestProfile {
+  return {
+    topicScores: mergeScoreMaps(
+      fromLikes.topicScores,
+      persisted.topicScores,
+    ) as UserPreferences['topicScores'],
+    keywordScores: mergeScoreMaps(fromLikes.keywordScores, persisted.keywordScores),
+    sportTagScores: mergeScoreMaps(
+      fromLikes.sportTagScores ?? {},
+      persisted.sportTagScores ?? {},
+    ),
+  };
+}
+
+function profileFromLikedArticles(liked: Article[]): LikedInterestProfile {
+  const topicScores = {} as UserPreferences['topicScores'];
+  const keywordScores: Record<string, number> = {};
+  const sportTagScores: Record<string, number> = {};
+
+  for (const article of liked) {
+    for (const topic of article.topics) {
+      if (isSourceBleed(topic, article.source)) continue;
+      topicScores[topic as Topic] = (topicScores[topic as Topic] ?? 0) + 1;
+    }
+    for (const keyword of articleInterestKeywords(article)) {
+      const weight = getInterestKeywordWeight(keyword);
+      keywordScores[keyword] = (keywordScores[keyword] ?? 0) + weight;
+    }
+    for (const tag of articleSportTags(article)) {
+      sportTagScores[tag] = (sportTagScores[tag] ?? 0) + 1;
+    }
+  }
+
+  return { topicScores, keywordScores, sportTagScores };
+}
+
+/** Build a fresh interest profile from liked article content on each feed load. */
+export function buildLikedInterestProfile(
+  prefs: UserPreferences,
+  feedArticles: Article[] = [],
+): LikedInterestProfile | null {
+  const persisted = persistedInterestProfile(prefs);
+  const liked = resolveLikedArticles(
+    prefs.likedArticleIds,
+    prefs.likedArticles ?? {},
+    feedArticles,
+  );
+
+  if (liked.length === 0) {
+    if (prefs.likedArticleIds.length === 0) return null;
+    return hasInterestSignals(persisted) ? persisted : null;
+  }
+
+  return profileFromLikedArticles(liked);
+}
+
+/** Sync persisted interest scores from saved liked-article snapshots on load. */
+export function reconcileInterestScores(prefs: UserPreferences): UserPreferences {
+  if (prefs.likedArticleIds.length === 0) return prefs;
+
+  const profile = buildLikedInterestProfile(
+    prefs,
+    Object.values(prefs.likedArticles ?? {}),
+  );
+  if (!profile || !hasInterestSignals(profile)) return prefs;
+  if (interestProfilesEqual(profile, persistedInterestProfile(prefs))) return prefs;
+
+  return {
+    ...prefs,
+    topicScores: profile.topicScores,
+    keywordScores: profile.keywordScores,
+    sportTagScores: profile.sportTagScores,
+  };
 }

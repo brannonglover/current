@@ -4,7 +4,12 @@ import { ArticleFeedScreen } from '@/components/ArticleFeedScreen';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { useArticles } from '@/hooks/useArticles';
 import { useDisplayOrderLock } from '@/hooks/useDisplayOrderLock';
-import { getPersonalizedFeed, hasLikedArticles } from '@/services/recommendations';
+import { buildLikedInterestProfile, hasInterestSignals } from '@/services/interestSignals';
+import {
+  buildArticleMatchReasonsById,
+  getPersonalizedFeed,
+  hasLikedArticles,
+} from '@/services/recommendations';
 import { isAllSourcesEnabled } from '@/services/sourcePreferences';
 import { getForYouEmptyMessage } from '@/utils/feedEmptyMessage';
 import { orderPersonalizedFeed } from '@/utils/feedOrdering';
@@ -30,10 +35,7 @@ export default function ForYouScreen() {
     error,
     notice,
     usingDemoArticles,
-    pendingCount,
-    dismissPendingArticles,
     refresh,
-    applyPending,
   } = useArticles();
 
   const likedArticlesReady = preferences != null;
@@ -43,7 +45,7 @@ export default function ForYouScreen() {
   const prevFeedGenerationRef = useRef(0);
   const prevRawLengthRef = useRef(0);
   const syncDisplayHandledRef = useRef(false);
-  const { markInitialDisplay, shouldAllowFullRebuild, shouldAllowSilentMerge, lockEpoch } =
+  const { markInitialDisplay, shouldAllowFullRebuild, shouldAllowSilentMerge } =
     useDisplayOrderLock(isRefreshing);
 
   useLayoutEffect(() => {
@@ -118,7 +120,6 @@ export default function ForYouScreen() {
     filterFeedArticles,
     preferences,
     userHasLikedArticles,
-    lockEpoch,
     shouldAllowSilentMerge,
   ]);
 
@@ -137,9 +138,27 @@ export default function ForYouScreen() {
     userHasLikedArticles,
   ]);
 
+  const matchReasonsByArticleId = useMemo(() => {
+    if (!userHasLikedArticles || !preferences || personalized.length === 0) {
+      return new Map<string, string[]>();
+    }
+    const filtered = filterFeedArticles(articles);
+    const profile = buildLikedInterestProfile(preferences, [
+      ...filtered,
+      ...Object.values(preferences.likedArticles ?? {}),
+    ]);
+    return buildArticleMatchReasonsById(personalized, profile);
+  }, [userHasLikedArticles, preferences, personalized, filterFeedArticles, articles]);
+
   const emptyMessage = useMemo(
     () => {
       const filtered = filterFeedArticles(articles);
+      const profile = preferences
+        ? buildLikedInterestProfile(preferences, [
+            ...filtered,
+            ...Object.values(preferences.likedArticles ?? {}),
+          ])
+        : null;
       return getForYouEmptyMessage({
         error,
         totalCount: articles.length,
@@ -151,6 +170,7 @@ export default function ForYouScreen() {
           !!preferences && !isAllSourcesEnabled(preferences.enabledSourceIds),
         usingDemoArticles,
         hasLikedArticles: userHasLikedArticles,
+        hasInterestProfile: profile ? hasInterestSignals(profile) : false,
       });
     },
     [
@@ -172,15 +192,13 @@ export default function ForYouScreen() {
       articles={personalized}
       title="For You"
       subtitle={personalizationSummary}
+      matchReasonsByArticleId={matchReasonsByArticleId}
       emptyMessage={emptyMessage}
       isLoading={isLoading || (isPreferencesLoading && !likedArticlesReady)}
       isRefreshing={isRefreshing}
       error={error}
       notice={notice}
       onRefresh={refresh}
-      onApplyPending={applyPending}
-      pendingCount={pendingCount}
-      onDismissPending={dismissPendingArticles}
     />
   );
 }

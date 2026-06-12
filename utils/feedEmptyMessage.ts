@@ -6,6 +6,15 @@ import { isAllTopicsEnabled } from '@/services/topicPreferences';
 export const FOR_YOU_NO_LIKES_MESSAGE =
   'Like stories on Latest to build your For You feed. Tap the heart on articles you enjoy.';
 
+export const FOR_YOU_NO_MATCHES_MESSAGE =
+  'No stories match your interests yet. Like more on Latest to refine your feed.';
+
+export const FOR_YOU_NO_PROFILE_MESSAGE =
+  'We could not load interest signals from your liked story. Pull to refresh, or unlike and re-like it on Latest.';
+
+export const FOR_YOU_DEMO_NO_MATCHES_MESSAGE =
+  'Offline demo stories do not include TV or series coverage. Connect to the API for a personalized feed.';
+
 export function getForYouEmptyMessage(options: {
   error?: string | null;
   totalCount: number;
@@ -16,14 +25,39 @@ export function getForYouEmptyMessage(options: {
   sourcesRestricted?: boolean;
   usingDemoArticles?: boolean;
   hasLikedArticles: boolean;
+  hasInterestProfile?: boolean;
 }): string | undefined {
-  const { hasLikedArticles, error, totalCount } = options;
+  const {
+    hasLikedArticles,
+    hasInterestProfile,
+    error,
+    totalCount,
+    filteredCount,
+    sourceFilteredCount,
+    usingDemoArticles,
+  } = options;
 
   if (!hasLikedArticles) {
     if (error && totalCount === 0) {
       return 'Could not load stories. Fix the connection above, then pull to refresh.';
     }
     return FOR_YOU_NO_LIKES_MESSAGE;
+  }
+
+  if (hasInterestProfile === false) {
+    return FOR_YOU_NO_PROFILE_MESSAGE;
+  }
+
+  if (filteredCount === 0 && usingDemoArticles) {
+    return FOR_YOU_DEMO_NO_MATCHES_MESSAGE;
+  }
+
+  if (filteredCount === 0 && sourceFilteredCount > 0) {
+    return FOR_YOU_NO_MATCHES_MESSAGE;
+  }
+
+  if (filteredCount === 0 && totalCount > 0) {
+    return FOR_YOU_NO_MATCHES_MESSAGE;
   }
 
   return getFeedEmptyMessage(options);

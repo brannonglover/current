@@ -1,9 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   FlatList,
   LayoutChangeEvent,
+  ListRenderItemInfo,
   NativeScrollEvent,
   NativeSyntheticEvent,
   PixelRatio,
@@ -103,6 +113,8 @@ interface ArticleFeedProps {
   loadMoreCursor?: number;
   /** Visual trial: hero story above the fold, compact cards below */
   layout?: ArticleFeedLayout;
+  /** For You only — per-article liked-interest match chips. */
+  matchReasonsByArticleId?: Map<string, string[]>;
 }
 
 function FeedLoadMoreFooter() {
@@ -155,15 +167,23 @@ function getSnapMetrics(pageHeight: number) {
   return { peekPx, snapHeight };
 }
 
-function FeedCardItem({
-  article,
-  height,
-  isLast,
-  showTopSeparator,
-  endPullDistance,
-  allowPress,
-  trendingBadge,
-}: {
+function areFeedCardItemPropsEqual(
+  prev: FeedCardItemProps,
+  next: FeedCardItemProps,
+) {
+  return (
+    prev.article === next.article &&
+    prev.height === next.height &&
+    prev.isLast === next.isLast &&
+    prev.showTopSeparator === next.showTopSeparator &&
+    prev.endPullDistance === next.endPullDistance &&
+    prev.allowPress === next.allowPress &&
+    prev.trendingBadge === next.trendingBadge &&
+    prev.matchReasons === next.matchReasons
+  );
+}
+
+type FeedCardItemProps = {
   article: Article;
   height: number;
   isLast: boolean;
@@ -171,7 +191,19 @@ function FeedCardItem({
   endPullDistance: SharedValue<number>;
   allowPress: () => boolean;
   trendingBadge?: TrendingBadge;
-}) {
+  matchReasons?: string[];
+};
+
+const FeedCardItem = memo(function FeedCardItem({
+  article,
+  height,
+  isLast,
+  showTopSeparator,
+  endPullDistance,
+  allowPress,
+  trendingBadge,
+  matchReasons,
+}: FeedCardItemProps) {
   const { colors } = useTheme();
   const stretchStyle = useAnimatedStyle(() => {
     if (!isLast) return {};
@@ -190,11 +222,12 @@ function FeedCardItem({
           height={height}
           allowPress={allowPress}
           trendingBadge={trendingBadge}
+          matchReasons={matchReasons}
         />
       </Animated.View>
     </>
   );
-}
+}, areFeedCardItemPropsEqual);
 
 export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(function ArticleFeed(
   {
@@ -215,6 +248,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
     isLoadingMore,
     loadMoreCursor,
     layout = 'snap',
+    matchReasonsByArticleId,
   },
   ref,
 ) {
@@ -563,6 +597,89 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
     })();
   }, [pendingCount, onApplyPending, scrollToTop]);
 
+  const articleKeyExtractor = useCallback((item: Article) => item.id, []);
+  const newspaperRowKeyExtractor = useCallback((item: NewspaperFeedRow) => item.id, []);
+
+  const snapHeight = snapMetrics?.snapHeight ?? 0;
+  const articlesCount = articles.length;
+
+  const getSnapItemLayout = useCallback(
+    (_: ArrayLike<Article> | null | undefined, index: number) => ({
+      length: snapHeight,
+      offset: snapHeight * index,
+      index,
+    }),
+    [snapHeight],
+  );
+
+  const renderSnapItem = useCallback(
+    ({ item, index }: ListRenderItemInfo<Article>) => (
+      <FeedCardItem
+        article={item}
+        height={snapHeight}
+        isLast={index === articlesCount - 1}
+        showTopSeparator={index > 0}
+        endPullDistance={endPullDistance}
+        allowPress={allowCardPress}
+        trendingBadge={feedTrendingBadges.get(item.id)}
+        matchReasons={matchReasonsByArticleId?.get(item.id)}
+      />
+    ),
+    [
+      snapHeight,
+      articlesCount,
+      endPullDistance,
+      allowCardPress,
+      feedTrendingBadges,
+      matchReasonsByArticleId,
+    ],
+  );
+
+  const renderNewspaperItem = useCallback(
+    ({ item: row }: ListRenderItemInfo<NewspaperFeedRow>) => {
+      if (row.type === 'featured') {
+        return (
+          <View style={styles.newspaperFeaturedRow}>
+            <FeedArticleSeparator color={colors.feedDivider} />
+            <ArticleCard
+              article={row.article}
+              height={NEWSPAPER_FEATURED_CARD_HEIGHT}
+              variant="featured"
+              allowPress={allowCardPress}
+              trendingBadge={feedTrendingBadges.get(row.article.id)}
+              matchReasons={matchReasonsByArticleId?.get(row.article.id)}
+            />
+          </View>
+        );
+      }
+
+      return (
+        <View style={styles.newspaperGridRow}>
+          <FeedArticleSeparator color={colors.feedDivider} />
+          <View style={styles.newspaperGridCells}>
+            {row.articles.map((article, index) => (
+              <View key={article.id} style={styles.newspaperGridCellGroup}>
+                {index > 0 ? (
+                  <FeedArticleSeparator color={colors.feedDivider} vertical />
+                ) : null}
+                <View style={styles.newspaperGridCell}>
+                  <ArticleCard
+                    article={article}
+                    height={NEWSPAPER_COMPACT_CARD_HEIGHT}
+                    variant="compact"
+                    allowPress={allowCardPress}
+                    matchReasons={matchReasonsByArticleId?.get(article.id)}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+    },
+    [colors.feedDivider, allowCardPress, feedTrendingBadges, matchReasonsByArticleId],
+  );
+
   const pendingBannerOverlay = (
     <View style={styles.pendingBannerOverlay} pointerEvents="box-none">
       <FeedPendingBanner
@@ -639,7 +756,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
             <FlatList
               ref={newspaperListRef}
               data={newspaperRows}
-              keyExtractor={(item) => item.id}
+              keyExtractor={newspaperRowKeyExtractor}
               ListHeaderComponent={
                 heroArticle ? (
                   <ArticleCard
@@ -648,48 +765,11 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
                     variant="hero"
                     allowPress={allowCardPress}
                     trendingBadge={feedTrendingBadges.get(heroArticle.id)}
+                    matchReasons={matchReasonsByArticleId?.get(heroArticle.id)}
                   />
                 ) : null
               }
-              renderItem={({ item: row }) => {
-                if (row.type === 'featured') {
-                  return (
-                    <View style={styles.newspaperFeaturedRow}>
-                      <FeedArticleSeparator color={colors.feedDivider} />
-                      <ArticleCard
-                        article={row.article}
-                        height={NEWSPAPER_FEATURED_CARD_HEIGHT}
-                        variant="featured"
-                        allowPress={allowCardPress}
-                        trendingBadge={feedTrendingBadges.get(row.article.id)}
-                      />
-                    </View>
-                  );
-                }
-
-                return (
-                  <View style={styles.newspaperGridRow}>
-                    <FeedArticleSeparator color={colors.feedDivider} />
-                    <View style={styles.newspaperGridCells}>
-                      {row.articles.map((article, index) => (
-                        <View key={article.id} style={styles.newspaperGridCellGroup}>
-                          {index > 0 ? (
-                            <FeedArticleSeparator color={colors.feedDivider} vertical />
-                          ) : null}
-                          <View style={styles.newspaperGridCell}>
-                            <ArticleCard
-                              article={article}
-                              height={NEWSPAPER_COMPACT_CARD_HEIGHT}
-                              variant="compact"
-                              allowPress={allowCardPress}
-                            />
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                );
-              }}
+              renderItem={renderNewspaperItem}
               style={[styles.list, { height: pageHeight }]}
               contentContainerStyle={styles.newspaperListContent}
               showsVerticalScrollIndicator={false}
@@ -726,18 +806,8 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
           <AnimatedFlatList
             ref={listRef}
             data={articles}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item, index }) => (
-              <FeedCardItem
-                article={item}
-                height={snapMetrics.snapHeight}
-                isLast={index === articles.length - 1}
-                showTopSeparator={index > 0}
-                endPullDistance={endPullDistance}
-                allowPress={allowCardPress}
-                trendingBadge={feedTrendingBadges.get(item.id)}
-              />
-            )}
+            keyExtractor={articleKeyExtractor}
+            renderItem={renderSnapItem}
             style={[styles.list, { height: pageHeight, zIndex: 0 }]}
             showsVerticalScrollIndicator={false}
             pagingEnabled={false}
@@ -757,11 +827,7 @@ export const ArticleFeed = forwardRef<ArticleFeedHandle, ArticleFeedProps>(funct
             onMomentumScrollEnd={markFeedScrollEnded}
             onViewableItemsChanged={onViewableItemsChanged.current}
             viewabilityConfig={viewabilityConfig.current}
-            getItemLayout={(_, index) => ({
-              length: snapMetrics.snapHeight,
-              offset: snapMetrics.snapHeight * index,
-              index,
-            })}
+            getItemLayout={getSnapItemLayout}
             onEndReached={requestLoadMore}
             onEndReachedThreshold={0.65}
             onContentSizeChange={(_, height) => maybeLoadMoreForShortContent(height)}
